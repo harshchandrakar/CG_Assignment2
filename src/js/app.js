@@ -8,6 +8,7 @@ class RotatingModelApp {
         this.uniformLocations = {};
         this.modelFolder = modelFolder;
         this.modelNames = modelNames;
+        this.axesModels = [];
 
         // View mode states
         this.currentViewMode = 'threeD'; // Default to 3D view
@@ -71,6 +72,108 @@ class RotatingModelApp {
         return indices;
     }
 
+    async generateAxisArrow(color, rotation, length = 1.0) {
+        // Create vertices for a simple axis representation
+        const cylinderVertices = [];
+        const coneVertices = [];
+        const colors = [];
+
+        // Cylinder parameters
+        const cylinderRadius = 0.03;
+        const cylinderHeight = length * 0.6;
+        const coneHeight = length * 0.2;
+        const segments = 12;
+
+        // Generate cylinder vertices
+        for (let i = 0; i <= segments; i++) {
+            const theta = (i / segments) * 2 * Math.PI;
+            const x = cylinderRadius * Math.cos(theta);
+            const y = cylinderRadius * Math.sin(theta);
+
+            // Bottom and top of cylinder
+            cylinderVertices.push(x, y, 0);
+            cylinderVertices.push(x, y, cylinderHeight);
+        }
+
+        // Generate cone vertices
+        for (let i = 0; i <= segments; i++) {
+            const theta = (i / segments) * 2 * Math.PI;
+            const x = cylinderRadius * Math.cos(theta);
+            const y = cylinderRadius * Math.sin(theta);
+
+            // Base of cone
+            coneVertices.push(x, y, cylinderHeight);
+            // Tip of cone
+            coneVertices.push(0, 0, cylinderHeight + coneHeight);
+        }
+
+        // Create indices for cylinder and cone
+        const cylinderIndices = [];
+        const coneIndices = [];
+
+        // Cylinder side faces
+        for (let i = 0; i < segments; i++) {
+            cylinderIndices.push(
+                i * 2, i * 2 + 1, 
+                (i + 1) * 2, 
+                (i + 1) * 2, 
+                i * 2 + 1, 
+                (i + 1) * 2 + 1
+            );
+        }
+
+        // Cone side faces
+        for (let i = 0; i < segments; i++) {
+            coneIndices.push(
+                i * 2, 
+                (i + 1) * 2, 
+                i * 2 + 1
+            );
+        }
+
+        // Combine cylinder and cone vertices
+        const vertices = new Float32Array([...cylinderVertices, ...coneVertices]);
+
+        // Create colors for the entire geometry
+        for (let i = 0; i < (cylinderVertices.length / 3) + (coneVertices.length / 3); i++) {
+            colors.push(color[0], color[1], color[2]);
+        }
+
+        // Create the model object
+        const model = {
+            vertices: vertices,
+            colors: new Float32Array(colors),
+            indices: new Uint16Array([...cylinderIndices, ...coneIndices.map(i => i + cylinderVertices.length / 3)])
+        };
+
+        // Rotate the model to align with the correct axis
+        const rotatedVertices = new Float32Array(model.vertices.length);
+        for (let i = 0; i < model.vertices.length; i += 3) {
+            let x = model.vertices[i];
+            let y = model.vertices[i + 1];
+            let z = model.vertices[i + 2];
+            
+            // Apply rotation based on the specified axis
+            if (rotation === 'x') {
+                rotatedVertices[i] = z;
+                rotatedVertices[i + 1] = x;
+                rotatedVertices[i + 2] = y;
+            } else if (rotation === 'y') {
+                rotatedVertices[i] = x;
+                rotatedVertices[i + 1] = z;
+                rotatedVertices[i + 2] = y;
+            } else { // z-axis (default)
+                rotatedVertices[i] = x;
+                rotatedVertices[i + 1] = y;
+                rotatedVertices[i + 2] = z;
+            }
+        }
+        model.vertices = rotatedVertices;
+
+        return model;
+    }
+
+
     async init() {
         try {
             // Ensure required libraries are available
@@ -121,12 +224,46 @@ class RotatingModelApp {
                 this.buffers.push(modelBuffers);
             }
 
+            // Generate and load axis arrows
+            const axisColors = [
+                [1.0, 0.0, 0.0],  // X-axis (Red)
+                [0.0, 1.0, 0.0],  // Y-axis (Green)
+                [0.0, 0.0, 1.0]   // Z-axis (Blue)
+            ];
+            const axisRotations = ['x', 'y', 'z'];
+
+            // Adjust model placement to separate axes
+            for (let i = 0; i < 3; i++) {
+                const axisModel = await this.generateAxisArrow(axisColors[i], axisRotations[i], 0.5);
+                
+                // Offset each axis slightly to prevent overlap
+                const offset = [
+                    (i === 0 ? -0 : 0),  // X-axis
+                    (i === 1 ? -0 : 0),  // Y-axis
+                    (i === 2 ? -0 : 0)   // Z-axis
+                ];
+                
+                const offsetVertices = new Float32Array(axisModel.vertices.length);
+                for (let j = 0; j < axisModel.vertices.length; j += 3) {
+                    offsetVertices[j] = axisModel.vertices[j] + offset[0];
+                    offsetVertices[j + 1] = axisModel.vertices[j + 1] + offset[1];
+                    offsetVertices[j + 2] = axisModel.vertices[j + 2] + offset[2];
+                }
+                axisModel.vertices = offsetVertices;
+
+                const axisBuffers = this.renderer.createBuffers(axisModel);
+                
+                this.axesModels.push(axisModel);
+                this.buffers.push(axisBuffers);
+                this.models.push(axisModel);
+            }
+
             // Setup attributes for each buffer with more robust error handling
             this.buffers.forEach((buffer, index) => {
                 try {
                     this.renderer.setupAttributes(this.program, buffer);
                 } catch (error) {
-                    console.error(`Error setting up attributes for model ${this.modelNames[index]}:`, error);
+                    console.error(`Error setting up attributes for buffer ${index}:`, error);
                 }
             });
 
@@ -311,7 +448,7 @@ class RotatingModelApp {
         const loop = () => {
             // Clear the canvas
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
+            gl.disable(gl.DEPTH_TEST);
             // Ensure we use the correct program
             gl.useProgram(this.program);
 
@@ -339,6 +476,7 @@ class RotatingModelApp {
                 this.renderer.setupAttributes(this.program, buffers);
                 this.renderer.render(this.program, model);
             });
+            gl.enable(gl.DEPTH_TEST);
             
             requestAnimationFrame(loop);
         };
@@ -381,7 +519,7 @@ class RotatingModelApp {
 // Initialize the application when the window loads
 window.onload = async () => {
     const modelFolder = 'models';
-    const modelNames = ['cube.obj', 'arrow1.obj', 'cube.obj'];
+    const modelNames = ['random2.obj', 'cup4.obj','random2.obj','cube.obj'];
     const app = new RotatingModelApp(modelFolder, modelNames);
     await app.init();
 };
