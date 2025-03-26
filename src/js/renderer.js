@@ -64,29 +64,33 @@ class Renderer {
 
         // Position Attribute
         const positionAttribLocation = gl.getAttribLocation(program, 'vertPosition');
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffers.vertexBuffer);
-        gl.vertexAttribPointer(
-            positionAttribLocation, 
-            3, 
-            gl.FLOAT, 
-            gl.FALSE,
-            3 * Float32Array.BYTES_PER_ELEMENT, 
-            0
-        );
-        gl.enableVertexAttribArray(positionAttribLocation);
+        if (positionAttribLocation !== -1) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffers.vertexBuffer);
+            gl.vertexAttribPointer(
+                positionAttribLocation, 
+                3, 
+                gl.FLOAT, 
+                gl.FALSE,
+                3 * Float32Array.BYTES_PER_ELEMENT, 
+                0
+            );
+            gl.enableVertexAttribArray(positionAttribLocation);
+        }
 
         // Color Attribute
         const colorAttribLocation = gl.getAttribLocation(program, 'vertColor');
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffers.colorBuffer);
-        gl.vertexAttribPointer(
-            colorAttribLocation, 
-            3, 
-            gl.FLOAT, 
-            gl.FALSE,
-            3 * Float32Array.BYTES_PER_ELEMENT, 
-            0
-        );
-        gl.enableVertexAttribArray(colorAttribLocation);
+        if (colorAttribLocation !== -1) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffers.colorBuffer);
+            gl.vertexAttribPointer(
+                colorAttribLocation, 
+                3, 
+                gl.FLOAT, 
+                gl.FALSE,
+                3 * Float32Array.BYTES_PER_ELEMENT, 
+                0
+            );
+            gl.enableVertexAttribArray(colorAttribLocation);
+        }
 
         // Bind index buffer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indexBuffer);
@@ -96,11 +100,7 @@ class Renderer {
         const gl = this.gl;
         gl.useProgram(program);
 
-        // Clear both color and depth buffers
-        gl.clearColor(0.2, 0.2, 0.2, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-        // Draw elements with depth and culling enabled
+        // Render the model using indexed drawing
         gl.drawElements(gl.TRIANGLES, model.indices.length, gl.UNSIGNED_SHORT, 0);
     }
 }

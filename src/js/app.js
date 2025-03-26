@@ -1,11 +1,13 @@
 class RotatingModelApp {
-    constructor() {
+    constructor(modelFolder, modelNames) {
         this.canvas = document.getElementById('game-surface');
         this.renderer = new Renderer(this.canvas);
         this.program = null;
-        this.model = null;
-        this.buffers = null;
+        this.models = [];
+        this.buffers = [];
         this.uniformLocations = {};
+        this.modelFolder = modelFolder;
+        this.modelNames = modelNames;
 
         // View mode states
         this.currentViewMode = 'threeD'; // Default to 3D view
@@ -20,9 +22,15 @@ class RotatingModelApp {
             }
         };
 
-        // Bind key event handler - move this to the end of methods to ensure all methods exist
+        // World and projection matrices
+        this.worldMatrix = new Float32Array(16);
+        this.projMatrix = new Float32Array(16);
+
+        // Bind methods to ensure correct context
         this.handleKeyPress = this.handleKeyPress.bind(this);
+        this.init = this.init.bind(this);
     }
+
     scaleModelVertices(model, scale = 0.5) {
         const scaledVertices = new Float32Array(model.vertices.length);
         for (let i = 0; i < model.vertices.length; i++) {
@@ -30,6 +38,37 @@ class RotatingModelApp {
         }
         model.vertices = scaledVertices;
         return model;
+    }
+
+    calculateModelOffset(index, modelCount) {
+        const spacing = 1.5; // Spacing between models
+        const totalWidth = (modelCount - 1) * spacing;
+        const startX = -totalWidth / 2;
+        
+        return [
+            startX + index * spacing, 
+            0, 
+            0
+        ];
+    }
+
+    applyModelOffset(model, offset) {
+        const offsetVertices = new Float32Array(model.vertices.length);
+        for (let i = 0; i < model.vertices.length; i += 3) {
+            offsetVertices[i] = model.vertices[i] + offset[0];
+            offsetVertices[i + 1] = model.vertices[i + 1] + offset[1];
+            offsetVertices[i + 2] = model.vertices[i + 2] + offset[2];
+        }
+        model.vertices = offsetVertices;
+        return model;
+    }
+
+    generateIndices(vertexCount) {
+        const indices = new Uint16Array(vertexCount);
+        for (let i = 0; i < vertexCount; i++) {
+            indices[i] = i;
+        }
+        return indices;
     }
 
     async init() {
@@ -56,20 +95,40 @@ class RotatingModelApp {
             // Validate program
             this.validateProgram();
 
-            // Load model with enhanced error handling
-            let model = await this.loadModelWithDetailing('models/cube.obj');
-            
-            // Scale the model down
-            model = this.scaleModelVertices(model, 0.3);
+            // Load models with improved error handling
+            for (let i = 0; i < this.modelNames.length; i++) {
+                let modelPath = `${this.modelFolder}/${this.modelNames[i]}`;
+                let model = await this.loadModelWithDetailing(modelPath);
+                
+                // Scale the model down
+                model = this.scaleModelVertices(model, 0.3);
 
-            // Create buffers
-            this.buffers = this.renderer.createBuffers(model);
+                // Calculate and apply offset
+                const offset = this.calculateModelOffset(i, this.modelNames.length);
+                model = this.applyModelOffset(model, offset);
 
-            // Store the model
-            this.model = model;
+                // Ensure indices are correct
+                if (!model.indices || model.indices.length === 0) {
+                    console.warn(`Generating indices for model ${this.modelNames[i]}`);
+                    model.indices = this.generateIndices(model.vertices.length / 3);
+                }
 
-            // Setup attributes
-            this.renderer.setupAttributes(this.program, this.buffers);
+                // Create buffers with additional error checking
+                const modelBuffers = this.renderer.createBuffers(model);
+                
+                // Store model and buffers
+                this.models.push(model);
+                this.buffers.push(modelBuffers);
+            }
+
+            // Setup attributes for each buffer with more robust error handling
+            this.buffers.forEach((buffer, index) => {
+                try {
+                    this.renderer.setupAttributes(this.program, buffer);
+                } catch (error) {
+                    console.error(`Error setting up attributes for model ${this.modelNames[index]}:`, error);
+                }
+            });
 
             // Get and validate uniform locations
             this.getUniformLocations();
@@ -91,7 +150,6 @@ class RotatingModelApp {
         }
     }
 
-    // Restored methods from previous implementation
     validateProgram() {
         const gl = this.renderer.gl;
         
@@ -124,6 +182,7 @@ class RotatingModelApp {
             
             // Detailed logging of model properties
             console.group('Model Loading Details');
+            console.log('Model:', url);
             console.log('Vertices count:', model.vertices.length / 3);
             console.log('Indices count:', model.indices.length);
             console.log('Colors count:', model.colors.length / 3);
@@ -133,7 +192,8 @@ class RotatingModelApp {
                 throw new Error('No vertices found in the model');
             }
             if (model.indices.length === 0) {
-                throw new Error('No indices found in the model');
+                console.warn('No indices found, generating default indices');
+                model.indices = this.generateIndices(model.vertices.length / 3);
             }
             
             console.groupEnd();
@@ -163,7 +223,6 @@ class RotatingModelApp {
         });
     }
 
-    // Handle key press for view mode switching
     handleKeyPress(event) {
         // Switch to Top View when 'T' is pressed
         if (event.key.toLowerCase() === 't') {
@@ -179,7 +238,6 @@ class RotatingModelApp {
         }
     }
 
-    // Display current view mode information
     displayViewModeInfo() {
         // Remove any existing view mode info
         const existingInfoDiv = document.getElementById('view-mode-info');
@@ -212,19 +270,15 @@ class RotatingModelApp {
         // Ensure we use the correct program
         gl.useProgram(this.program);
 
-        // Create matrices
-        const worldMatrix = new Float32Array(16);
-        const projMatrix = new Float32Array(16);
-
         // Convert degrees to radians manually
         const degToRad = (deg) => deg * (Math.PI / 180);
 
         // Setup world matrix
-        glMatrix.mat4.identity(worldMatrix);
+        glMatrix.mat4.identity(this.worldMatrix);
 
-        // Setup projection matrix with slightly adjusted aspect ratio handling
+        // Setup projection matrix with adjusted aspect ratio
         glMatrix.mat4.perspective(
-            projMatrix, 
+            this.projMatrix, 
             degToRad(45), 
             this.canvas.clientWidth / this.canvas.clientHeight, 
             0.1, 
@@ -234,15 +288,11 @@ class RotatingModelApp {
         // Setup view matrices for both modes
         this.setupViewMatrix();
 
-        // Store matrices as class properties
-        this.worldMatrix = worldMatrix;
-        this.projMatrix = projMatrix;
-
         // Set uniform matrices
         const uniformSetters = [
-            { name: 'mWorld', matrix: worldMatrix },
+            { name: 'mWorld', matrix: this.worldMatrix },
             { name: 'mView', matrix: this.viewModes[this.currentViewMode].viewMatrix },
-            { name: 'mProj', matrix: projMatrix }
+            { name: 'mProj', matrix: this.projMatrix }
         ];
 
         uniformSetters.forEach(({ name, matrix }) => {
@@ -255,43 +305,13 @@ class RotatingModelApp {
         });
     }
 
-    // Setup view matrices for different modes
-    setupViewMatrix() {
-        // 3D View Matrix - Angled view from top-right
-        glMatrix.mat4.lookAt(
-            this.viewModes.threeD.viewMatrix, 
-            [3, 3, -5],   // Reduced camera distance
-            [0, 0, 0],    // Look at origin
-            [0, 1, 0]     // Up vector
-        );
-
-        // Top View Matrix (Looking directly down Z-axis)
-        glMatrix.mat4.lookAt(
-            this.viewModes.topView.viewMatrix, 
-            [0, 5, 0],    // Reduced height
-            [0, 0, 0],    // Looking at origin
-            [1, 0, 0]     // Rotated up vector to change orientation
-        );
-
-        // Update view matrix in the rendering pipeline
-        const gl = this.renderer.gl;
-        gl.useProgram(this.program);
-        const viewLocation = this.uniformLocations.mView;
-        if (viewLocation !== null) {
-            gl.uniformMatrix4fv(
-                viewLocation, 
-                gl.FALSE, 
-                this.viewModes[this.currentViewMode].viewMatrix
-            );
-        }
-    }
     startAnimationLoop() {
         const gl = this.renderer.gl;
 
-        const identityMatrix = new Float32Array(16);
-        glMatrix.mat4.identity(identityMatrix);
-
         const loop = () => {
+            // Clear the canvas
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
             // Ensure we use the correct program
             gl.useProgram(this.program);
 
@@ -312,17 +332,56 @@ class RotatingModelApp {
                 );
             }
             
-            this.renderer.render(this.program, this.model);
+            // Render each model
+            this.models.forEach((model, index) => {
+                // Bind the specific buffers before rendering
+                const buffers = this.buffers[index];
+                this.renderer.setupAttributes(this.program, buffers);
+                this.renderer.render(this.program, model);
+            });
             
             requestAnimationFrame(loop);
         };
         
         requestAnimationFrame(loop);
     }
+
+    setupViewMatrix() {
+        const gl = this.renderer.gl;
+        gl.useProgram(this.program);
+
+        // 3D View Matrix - Angled view with wider FOV
+        glMatrix.mat4.lookAt(
+            this.viewModes.threeD.viewMatrix, 
+            [0, 2, 5],    // Adjusted camera position
+            [0, 0, 0],    // Look at origin
+            [0, 1, 0]     // Up vector
+        );
+
+        // Top View Matrix (Looking directly down from top)
+        glMatrix.mat4.lookAt(
+            this.viewModes.topView.viewMatrix, 
+            [0, 5, 0],    // Looking from top
+            [0, 0, 0],    // Looking at origin
+            [0, 0, -1]    // Adjusted up vector
+        );
+
+        // Update view matrix in the rendering pipeline
+        const viewLocation = this.uniformLocations.mView;
+        if (viewLocation !== null) {
+            gl.uniformMatrix4fv(
+                viewLocation, 
+                gl.FALSE, 
+                this.viewModes[this.currentViewMode].viewMatrix
+            );
+        }
+    }
 }
 
 // Initialize the application when the window loads
 window.onload = async () => {
-    const app = new RotatingModelApp();
+    const modelFolder = 'models';
+    const modelNames = ['cube.obj', 'arrow1.obj', 'cube.obj'];
+    const app = new RotatingModelApp(modelFolder, modelNames);
     await app.init();
 };
