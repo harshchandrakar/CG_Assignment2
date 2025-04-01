@@ -9,6 +9,13 @@ class RotatingModelApp {
         this.modelFolder = modelFolder;
         this.modelNames = modelNames;
         this.axesModels = [];
+        this.modelBuffers = [];
+        this.axesBuffers = [];
+        
+        // Object selection state variables
+        this.selectedObjectIndex = -1;  // -1 means no selection
+        this.originalColors = [];      // Store original colors for reset
+        this.highlightColor = [1.0, 0.5, 0.0];  // Bright orange highlight color
 
         // View mode states
         this.currentViewMode = 'threeD'; // Default to 3D view
@@ -29,6 +36,7 @@ class RotatingModelApp {
 
         // Bind methods to ensure correct context
         this.handleKeyPress = this.handleKeyPress.bind(this);
+        this.handleMouseClick = this.handleMouseClick.bind(this);
         this.init = this.init.bind(this);
     }
 
@@ -41,16 +49,9 @@ class RotatingModelApp {
         return model;
     }
 
+    // Modified to not apply any offset - all models will be at origin
     calculateModelOffset(index, modelCount) {
-        const spacing = 1.5; // Spacing between models
-        const totalWidth = (modelCount - 1) * spacing;
-        const startX = -totalWidth / 2;
-        
-        return [
-            startX + index * spacing, 
-            0, 
-            0
-        ];
+        return [0, 0, 0]; // No offset - all at origin
     }
 
     applyModelOffset(model, offset) {
@@ -72,16 +73,42 @@ class RotatingModelApp {
         return indices;
     }
 
+    // Generate unique colors for each model to make them visually distinguishable
+    generateUniqueColors(model, index) {
+        // Generate a unique color based on the model index
+        // Using a color palette for better distinction
+        const colorPalette = [
+            [0.8, 0.2, 0.2], // Red
+            [0.2, 0.8, 0.2], // Green
+            [0.2, 0.2, 0.8], // Blue
+            [0.8, 0.8, 0.2], // Yellow
+            [0.8, 0.2, 0.8], // Magenta
+            [0.2, 0.8, 0.8]  // Cyan
+        ];
+        
+        const modelColor = colorPalette[index % colorPalette.length];
+        const colors = new Float32Array(model.vertices.length);
+        
+        // Assign the color to all vertices
+        for (let i = 0; i < model.vertices.length / 3; i++) {
+            colors[i * 3] = modelColor[0];
+            colors[i * 3 + 1] = modelColor[1];
+            colors[i * 3 + 2] = modelColor[2];
+        }
+        
+        return colors;
+    }
+
     async generateAxisArrow(color, rotation, length = 1.0) {
         // Create vertices for a simple axis representation
         const cylinderVertices = [];
         const coneVertices = [];
         const colors = [];
 
-        // Cylinder parameters
-        const cylinderRadius = 0.03;
-        const cylinderHeight = length * 0.6;
-        const coneHeight = length * 0.2;
+        // Cylinder parameters - increased size for better visibility
+        const cylinderRadius = 0.05; // Increased from 0.03
+        const cylinderHeight = length * 0.8; // Increased from 0.6
+        const coneHeight = length * 0.4; // Increased from 0.2
         const segments = 12;
 
         // Generate cylinder vertices
@@ -98,8 +125,8 @@ class RotatingModelApp {
         // Generate cone vertices
         for (let i = 0; i <= segments; i++) {
             const theta = (i / segments) * 2 * Math.PI;
-            const x = cylinderRadius * Math.cos(theta);
-            const y = cylinderRadius * Math.sin(theta);
+            const x = cylinderRadius * 2 * Math.cos(theta); // Larger cone base
+            const y = cylinderRadius * 2 * Math.sin(theta);
 
             // Base of cone
             coneVertices.push(x, y, cylinderHeight);
@@ -173,7 +200,6 @@ class RotatingModelApp {
         return model;
     }
 
-
     async init() {
         try {
             // Ensure required libraries are available
@@ -198,17 +224,16 @@ class RotatingModelApp {
             // Validate program
             this.validateProgram();
 
-            // Load models with improved error handling
+            // First load all model objects at the origin
             for (let i = 0; i < this.modelNames.length; i++) {
                 let modelPath = `${this.modelFolder}/${this.modelNames[i]}`;
                 let model = await this.loadModelWithDetailing(modelPath);
                 
                 // Scale the model down
                 model = this.scaleModelVertices(model, 0.3);
-
-                // Calculate and apply offset
-                const offset = this.calculateModelOffset(i, this.modelNames.length);
-                model = this.applyModelOffset(model, offset);
+                
+                // Generate unique colors for each model
+                model.colors = this.generateUniqueColors(model, i);
 
                 // Ensure indices are correct
                 if (!model.indices || model.indices.length === 0) {
@@ -222,6 +247,10 @@ class RotatingModelApp {
                 // Store model and buffers
                 this.models.push(model);
                 this.buffers.push(modelBuffers);
+                this.modelBuffers.push(modelBuffers);
+                
+                // Store original colors for later reset (deep copy)
+                this.originalColors.push(new Float32Array(model.colors));
             }
 
             // Generate and load axis arrows
@@ -231,31 +260,15 @@ class RotatingModelApp {
                 [0.0, 0.0, 1.0]   // Z-axis (Blue)
             ];
             const axisRotations = ['x', 'y', 'z'];
+            const axisLengths = [0.5, 0.5, 0.5]; // Make them longer for better visibility
 
-            // Adjust model placement to separate axes
+            // Create axis arrows
             for (let i = 0; i < 3; i++) {
-                const axisModel = await this.generateAxisArrow(axisColors[i], axisRotations[i], 0.5);
-                
-                // Offset each axis slightly to prevent overlap
-                const offset = [
-                    (i === 0 ? -0 : 0),  // X-axis
-                    (i === 1 ? -0 : 0),  // Y-axis
-                    (i === 2 ? -0 : 0)   // Z-axis
-                ];
-                
-                const offsetVertices = new Float32Array(axisModel.vertices.length);
-                for (let j = 0; j < axisModel.vertices.length; j += 3) {
-                    offsetVertices[j] = axisModel.vertices[j] + offset[0];
-                    offsetVertices[j + 1] = axisModel.vertices[j + 1] + offset[1];
-                    offsetVertices[j + 2] = axisModel.vertices[j + 2] + offset[2];
-                }
-                axisModel.vertices = offsetVertices;
-
+                const axisModel = await this.generateAxisArrow(axisColors[i], axisRotations[i], axisLengths[i]);
                 const axisBuffers = this.renderer.createBuffers(axisModel);
                 
                 this.axesModels.push(axisModel);
-                this.buffers.push(axisBuffers);
-                this.models.push(axisModel);
+                this.axesBuffers.push(axisBuffers);
             }
 
             // Setup attributes for each buffer with more robust error handling
@@ -273,8 +286,9 @@ class RotatingModelApp {
             // Setup matrices
             this.setupMatrices();
 
-            // Add key event listener
+            // Add event listeners
             window.addEventListener('keydown', this.handleKeyPress);
+            this.canvas.addEventListener('click', this.handleMouseClick);
 
             // Start animation loop
             this.startAnimationLoop();
@@ -321,14 +335,13 @@ class RotatingModelApp {
             console.group('Model Loading Details');
             console.log('Model:', url);
             console.log('Vertices count:', model.vertices.length / 3);
-            console.log('Indices count:', model.indices.length);
-            console.log('Colors count:', model.colors.length / 3);
+            console.log('Indices count:', model.indices ? model.indices.length : 0);
             
             // Validate model data
             if (model.vertices.length === 0) {
                 throw new Error('No vertices found in the model');
             }
-            if (model.indices.length === 0) {
+            if (!model.indices || model.indices.length === 0) {
                 console.warn('No indices found, generating default indices');
                 model.indices = this.generateIndices(model.vertices.length / 3);
             }
@@ -375,6 +388,204 @@ class RotatingModelApp {
         }
     }
 
+    handleMouseClick(event) {
+        // Only process clicks in Top View mode
+        if (this.currentViewMode !== 'topView') {
+            console.log('Object picking is only available in Top View mode.');
+            return;
+        }
+    
+        // Get canvas relative coordinates
+        const rect = this.canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        // Convert to normalized device coordinates (-1 to 1)
+        const ndcX = (x / this.canvas.width) * 2 - 1;
+        const ndcY = -((y / this.canvas.height) * 2 - 1); // Flip Y
+        
+        console.log(`Click at NDC coordinates: (${ndcX.toFixed(2)}, ${ndcY.toFixed(2)})`);
+        
+        // Cast ray from camera position in Top View
+        const modelIndex = this.pickObject(ndcX, ndcY);
+        
+        console.log(`Picked model index: ${modelIndex}`);
+        
+        // If an object was picked, highlight it
+        if (modelIndex !== -1 && modelIndex < this.models.length) {
+            this.selectObject(modelIndex);
+        } else {
+            // Clear selection when clicking on empty space
+            if (this.selectedObjectIndex !== -1) {
+                this.resetSelection();
+            }
+        }
+    }
+    
+    // Add this helper method to reset selection
+    resetSelection() {
+        if (this.selectedObjectIndex !== -1 && this.selectedObjectIndex < this.models.length) {
+            console.log(`Resetting selection: ${this.selectedObjectIndex}`);
+            
+            // Restore original colors
+            const originalColorArray = this.originalColors[this.selectedObjectIndex];
+            const model = this.models[this.selectedObjectIndex];
+            
+            // Perform deep copy
+            model.colors = new Float32Array(originalColorArray);
+            
+            // Update color buffer
+            const gl = this.renderer.gl;
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[this.selectedObjectIndex].colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, model.colors, gl.STATIC_DRAW);
+            
+            // Remove selection info from display
+            const infoDiv = document.getElementById('selection-info');
+            if (infoDiv) {
+                infoDiv.remove();
+            }
+            
+            // Reset selection index
+            this.selectedObjectIndex = -1;
+        }
+    }
+
+    pickObject(ndcX, ndcY) {
+        // Use ray-casting from top view to determine which object was clicked
+        
+        // In top view, our ray starts directly above the scene and points down
+        const rayOrigin = [ndcX * 5, 5, ndcY * 5]; // Start position based on click position
+        const rayDirection = [0, -1, 0]; // Pointing straight down in top view
+        
+        console.log(`Ray origin: (${rayOrigin[0].toFixed(2)}, ${rayOrigin[1].toFixed(2)}, ${rayOrigin[2].toFixed(2)})`);
+        console.log(`Ray direction: (${rayDirection[0].toFixed(2)}, ${rayDirection[1].toFixed(2)}, ${rayDirection[2].toFixed(2)})`);
+        
+        // Perform simple ray-model intersection tests
+        let closestModelIndex = -1;
+        let closestDistance = Infinity;
+        
+        for (let i = 0; i < this.models.length; i++) {
+            // Skip non-model objects (like axes)
+            if (i >= this.modelNames.length) continue;
+            
+            const model = this.models[i];
+            
+            // Calculate model's bounding sphere
+            let maxDistance = 0;
+            for (let j = 0; j < model.vertices.length; j += 3) {
+                const distance = Math.sqrt(
+                    model.vertices[j] * model.vertices[j] + 
+                    model.vertices[j+1] * model.vertices[j+1] + 
+                    model.vertices[j+2] * model.vertices[j+2]
+                );
+                if (distance > maxDistance) {
+                    maxDistance = distance;
+                }
+            }
+            
+            console.log(`Model ${i} bounding sphere radius: ${maxDistance.toFixed(4)}`);
+            
+            // Simple sphere-ray intersection
+            const sphereOrigin = [0, 0, 0]; // All models are at origin
+            const sphereRadius = maxDistance;
+            
+            // Ray-sphere intersection test
+            // For straight down ray, we just need to check if the XZ coordinates are within the sphere radius
+            const dx = rayOrigin[0] - sphereOrigin[0];
+            const dz = rayOrigin[2] - sphereOrigin[2];
+            const distanceSquared = dx * dx + dz * dz;
+            
+            // If the distance in XZ plane is less than sphere radius, we have a hit
+            if (distanceSquared <= sphereRadius * sphereRadius) {
+                // The y distance is what matters for determining which object is on top
+                const distance = rayOrigin[1] - sphereOrigin[1];
+                
+                console.log(`Model ${i} intersection distance: ${distance.toFixed(4)}`);
+                
+                // Keep closest valid intersection (closer to camera)
+                if (distance > 0 && distance < closestDistance) {
+                    closestDistance = distance;
+                    closestModelIndex = i;
+                }
+            } else {
+                console.log(`No intersection with model ${i}`);
+            }
+        }
+        
+        console.log(`Selected model index: ${closestModelIndex}, distance: ${closestDistance.toFixed(4)}`);
+        return closestModelIndex;
+    }
+
+    selectObject(index) {
+        console.log(`Selecting object at index ${index}: ${this.modelNames[index]}`);
+        
+        // Reset previous selection if there was one
+        if (this.selectedObjectIndex !== -1 && this.selectedObjectIndex < this.models.length) {
+            console.log(`Resetting previous selection: ${this.selectedObjectIndex}`);
+            
+            // Restore original colors
+            const originalColorArray = this.originalColors[this.selectedObjectIndex];
+            const model = this.models[this.selectedObjectIndex];
+            
+            // Perform deep copy
+            model.colors = new Float32Array(originalColorArray);
+            
+            // Update color buffer
+            const gl = this.renderer.gl;
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[this.selectedObjectIndex].colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, model.colors, gl.STATIC_DRAW);
+        }
+        
+        // Set new selection
+        this.selectedObjectIndex = index;
+        
+        // Apply highlight color to selected object
+        const selectedModel = this.models[index];
+        const newColors = new Float32Array(selectedModel.colors.length);
+        
+        for (let i = 0; i < selectedModel.colors.length; i += 3) {
+            newColors[i] = this.highlightColor[0];     // Red
+            newColors[i + 1] = this.highlightColor[1]; // Green
+            newColors[i + 2] = this.highlightColor[2]; // Blue
+        }
+        
+        // Update model colors
+        selectedModel.colors = newColors;
+        
+        // Update color buffer in WebGL
+        const gl = this.renderer.gl;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[index].colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, selectedModel.colors, gl.STATIC_DRAW);
+        
+        console.log(`Selected model: ${this.modelNames[index]}`);
+        
+        // Display selection info
+        this.displaySelectionInfo(index);
+    }
+
+    displaySelectionInfo(index) {
+        // Remove any existing selection info
+        const existingInfoDiv = document.getElementById('selection-info');
+        if (existingInfoDiv) {
+            existingInfoDiv.remove();
+        }
+
+        // Create a new info div
+        const infoDiv = document.createElement('div');
+        infoDiv.id = 'selection-info';
+        infoDiv.style.position = 'absolute';
+        infoDiv.style.top = '50px';
+        infoDiv.style.left = '10px';
+        infoDiv.style.color = 'white';
+        infoDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        infoDiv.style.padding = '10px';
+        infoDiv.innerHTML = `
+            <strong>Selected Object:</strong> 
+            ${this.modelNames[index]}
+        `;
+        document.body.appendChild(infoDiv);
+    }
+
     displayViewModeInfo() {
         // Remove any existing view mode info
         const existingInfoDiv = document.getElementById('view-mode-info');
@@ -395,7 +606,7 @@ class RotatingModelApp {
             <strong>View Mode:</strong> 
             ${this.currentViewMode === 'threeD' 
                 ? '3D Perspective View (Press T for Top View)' 
-                : 'Top View (Press Y for 3D View)'
+                : 'Top View (Press Y for 3D View, Click to Select Objects)'
             }
         `;
         document.body.appendChild(infoDiv);
@@ -448,11 +659,11 @@ class RotatingModelApp {
         const loop = () => {
             // Clear the canvas
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            gl.disable(gl.DEPTH_TEST);
+            
             // Ensure we use the correct program
             gl.useProgram(this.program);
 
-            // Remove rotation for static rendering
+            // Initialize the world matrix for each frame
             glMatrix.mat4.identity(this.worldMatrix);
             
             // Only set uniform if location is valid
@@ -469,13 +680,26 @@ class RotatingModelApp {
                 );
             }
             
-            // Render each model
+            // First render all models with depth testing enabled
+            gl.enable(gl.DEPTH_TEST);
             this.models.forEach((model, index) => {
+                // Skip the axes models for now
+                if (index >= this.modelNames.length) return;
+                
                 // Bind the specific buffers before rendering
                 const buffers = this.buffers[index];
                 this.renderer.setupAttributes(this.program, buffers);
                 this.renderer.render(this.program, model);
             });
+            
+            // Now render axes with depth test disabled so they're always visible
+            gl.disable(gl.DEPTH_TEST);
+            this.axesModels.forEach((axisModel, index) => {
+                this.renderer.setupAttributes(this.program, this.axesBuffers[index]);
+                this.renderer.render(this.program, axisModel);
+            });
+            
+            // Re-enable depth test for next frame
             gl.enable(gl.DEPTH_TEST);
             
             requestAnimationFrame(loop);
@@ -491,7 +715,7 @@ class RotatingModelApp {
         // 3D View Matrix - Angled view with wider FOV
         glMatrix.mat4.lookAt(
             this.viewModes.threeD.viewMatrix, 
-            [0, 2, 5],    // Adjusted camera position
+            [3, 3, 5],    // Adjusted camera position for better viewing of models at origin
             [0, 0, 0],    // Look at origin
             [0, 1, 0]     // Up vector
         );
@@ -519,7 +743,7 @@ class RotatingModelApp {
 // Initialize the application when the window loads
 window.onload = async () => {
     const modelFolder = 'models';
-    const modelNames = ['random2.obj', 'cup4.obj','random2.obj','cube.obj'];
+    const modelNames = ['cup4.obj', 'random2.obj', 'cube.obj'];
     const app = new RotatingModelApp(modelFolder, modelNames);
     await app.init();
 };

@@ -18,8 +18,8 @@ class Renderer {
     setupWebGL() {
         const gl = this.gl;
         
-        // Set clear color to a light gray
-        gl.clearColor(0.2, 0.2, 0.2, 1.0);
+        // Set clear color to a darker gray for better contrast with axis arrows
+        gl.clearColor(0.15, 0.15, 0.15, 1.0);
         
         // Enable depth testing to ensure proper rendering of faces
         gl.enable(gl.DEPTH_TEST);
@@ -29,6 +29,10 @@ class Renderer {
         gl.enable(gl.CULL_FACE);
         gl.frontFace(gl.CCW);   // Counter-clockwise winding order
         gl.cullFace(gl.BACK);   // Cull back faces
+        
+        // Setup blending for transparency if needed
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         
         // Clear both color and depth buffers
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
