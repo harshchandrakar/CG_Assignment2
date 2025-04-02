@@ -356,6 +356,11 @@ class RotatingModelApp {
     }
 
     handleMouseClick(event) {
+        // If we're in the middle of defining a path, let the movement controller handle it
+        if (this.movementController.isDefiningPath) {
+            return;
+        }
+    
         if (this.viewManager.currentViewMode !== 'topView') {
             console.log('Object picking is only available in Top View mode.');
             return;
@@ -369,158 +374,7 @@ class RotatingModelApp {
         const ndcY = -((y / this.canvas.height) * 2 - 1);
         
         console.log(`Click at NDC coordinates: (${ndcX.toFixed(2)}, ${ndcY.toFixed(2)})`);
-        
-        const modelIndex = this.pickObject(ndcX, ndcY);
-        
-        console.log(`Picked model index: ${modelIndex}`);
-        
-        if (modelIndex !== -1 && modelIndex < this.models.length) {
-            this.selectObject(modelIndex);
-        } else {
-            if (this.selectedObjectIndex !== -1) {
-                this.resetSelection();
-            }
-        }
-    }
-    
-    resetSelection() {
-        if (this.selectedObjectIndex !== -1 && this.selectedObjectIndex < this.models.length) {
-            console.log(`Resetting selection: ${this.selectedObjectIndex}`);
-            
-            const originalColorArray = this.originalColors[this.selectedObjectIndex];
-            const model = this.models[this.selectedObjectIndex];
-            
-            model.colors = new Float32Array(originalColorArray);
-            
-            const gl = this.renderer.gl;
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[this.selectedObjectIndex].colorBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, model.colors, gl.STATIC_DRAW);
-            
-            const infoDiv = document.getElementById('selection-info');
-            if (infoDiv) {
-                infoDiv.remove();
-            }
-            
-            this.selectedObjectIndex = -1;
-        }
-    }
-
-    pickObject(ndcX, ndcY) {
-        const rayOrigin = [ndcX * 5, 5, ndcY * 5];
-        const rayDirection = [0, -1, 0];
-        
-        let closestModelIndex = -1;
-        let closestDistance = Infinity;
-        
-        for (let i = 0; i < this.models.length; i++) {
-            if (i >= this.modelNames.length) continue;
-            
-            const model = this.models[i];
-            
-            let centerX = 0, centerY = 0, centerZ = 0;
-            let vertexCount = 0;
-            let maxDistanceFromCenter = 0;
-            
-            for (let j = 0; j < model.vertices.length; j += 3) {
-                centerX += model.vertices[j];
-                centerY += model.vertices[j+1];
-                centerZ += model.vertices[j+2];
-                vertexCount++;
-            }
-            
-            if (vertexCount > 0) {
-                centerX /= vertexCount;
-                centerY /= vertexCount;
-                centerZ /= vertexCount;
-            }
-            
-            for (let j = 0; j < model.vertices.length; j += 3) {
-                const dx = model.vertices[j] - centerX;
-                const dy = model.vertices[j+1] - centerY;
-                const dz = model.vertices[j+2] - centerZ;
-                const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                if (distance > maxDistanceFromCenter) {
-                    maxDistanceFromCenter = distance;
-                }
-            }
-            
-            const sphereOrigin = [centerX, centerY, centerZ];
-            const sphereRadius = maxDistanceFromCenter;
-            
-            const dx = rayOrigin[0] - sphereOrigin[0];
-            const dz = rayOrigin[2] - sphereOrigin[2];
-            const distanceSquared = dx * dx + dz * dz;
-            
-            if (distanceSquared <= sphereRadius * sphereRadius) {
-                const distance = rayOrigin[1] - sphereOrigin[1];
-                
-                if (distance > 0 && distance < closestDistance) {
-                    closestDistance = distance;
-                    closestModelIndex = i;
-                }
-            }
-        }
-        
-        return closestModelIndex;
-    }
-
-    selectObject(index) {
-        console.log(`Selecting object at index ${index}: ${this.modelNames[index]}`);
-        
-        if (this.selectedObjectIndex !== -1 && this.selectedObjectIndex < this.models.length) {
-            console.log(`Resetting previous selection: ${this.selectedObjectIndex}`);
-            
-            const originalColorArray = this.originalColors[this.selectedObjectIndex];
-            const model = this.models[this.selectedObjectIndex];
-            
-            model.colors = new Float32Array(originalColorArray);
-            
-            const gl = this.renderer.gl;
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[this.selectedObjectIndex].colorBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, model.colors, gl.STATIC_DRAW);
-        }
-        
-        this.selectedObjectIndex = index;
-        
-        const selectedModel = this.models[index];
-        const newColors = new Float32Array(selectedModel.colors.length);
-        
-        for (let i = 0; i < selectedModel.colors.length; i += 3) {
-            newColors[i] = this.highlightColor[0];
-            newColors[i + 1] = this.highlightColor[1];
-            newColors[i + 2] = this.highlightColor[2];
-        }
-        
-        selectedModel.colors = newColors;
-        
-        const gl = this.renderer.gl;
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers[index].colorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, selectedModel.colors, gl.STATIC_DRAW);
-        
-        console.log(`Selected model: ${this.modelNames[index]}`);
-        
-        this.displaySelectionInfo(index);
-    }
-
-    displaySelectionInfo(index) {
-        const existingInfoDiv = document.getElementById('selection-info');
-        if (existingInfoDiv) {
-            existingInfoDiv.remove();
-        }
-
-        const infoDiv = document.createElement('div');
-        infoDiv.id = 'selection-info';
-        infoDiv.style.position = 'absolute';
-        infoDiv.style.top = '50px';
-        infoDiv.style.left = '10px';
-        infoDiv.style.color = 'white';
-        infoDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
-        infoDiv.style.padding = '10px';
-        infoDiv.innerHTML = `
-            <strong>Selected Object:</strong> 
-            ${this.modelNames[index]}
-        `;
-        document.body.appendChild(infoDiv);
+        this.movementController.handleObjectSelection(ndcX, ndcY);
     }
 
     setupMatrices() {

@@ -11,6 +11,7 @@ class ObjectMovementController {
         this.originalModelPosition = null; 
         this.zHeight = 0.5; 
         this.viewSize = 4; 
+        this.highlightColor = [1.0, 0.5, 0.0];
         
         this.handleMouseClick = this.handleMouseClick.bind(this);
         this.startPathDefinition = this.startPathDefinition.bind(this);
@@ -21,6 +22,12 @@ class ObjectMovementController {
         this.displayPathVisualization = this.displayPathVisualization.bind(this);
         this.screenToWorldCoordinates = this.screenToWorldCoordinates.bind(this);
         this.worldToScreenCoordinates = this.worldToScreenCoordinates.bind(this);
+        
+        // Bind new selection methods
+        this.pickObject = this.pickObject.bind(this);
+        this.selectObject = this.selectObject.bind(this);
+        this.resetSelection = this.resetSelection.bind(this);
+        this.displaySelectionInfo = this.displaySelectionInfo.bind(this);
     }
 
     init() {
@@ -67,6 +74,20 @@ class ObjectMovementController {
         
         this.pathCanvas = pathCanvas;
         this.pathContext = pathCanvas.getContext('2d');
+    }
+
+    handleObjectSelection(ndcX, ndcY) {
+        const modelIndex = this.pickObject(ndcX, ndcY);
+        
+        console.log(`Picked model index: ${modelIndex}`);
+        
+        if (modelIndex !== -1 && modelIndex < this.app.models.length) {
+            this.selectObject(modelIndex);
+        } else {
+            if (this.app.selectedObjectIndex !== -1) {
+                this.resetSelection();
+            }
+        }
     }
 
     addMovementControlUI() {
@@ -126,30 +147,190 @@ class ObjectMovementController {
         this.app.canvas.addEventListener('click', this.handleMouseClick);
     }
 
+    // Updated handleMouseClick to include both selection and path definition
     handleMouseClick(event) {
-        if (!this.isDefiningPath) {
-            return;
-        }
-    
         const rect = this.app.canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
         
-        const worldCoords = this.screenToWorldCoordinates(x, y);
-        
-        this.pathPoints.push({
-            x: worldCoords.x,
-            y: worldCoords.y,
-            z: worldCoords.z
-        });
-        this.displayPathPointInfo(this.pathPoints.length - 1, worldCoords);
-        this.displayPathVisualization();
-        
-        if (this.pathPoints.length === 3) {
-            this.completePathDefinition();
+        if (this.isDefiningPath) {
+            const worldCoords = this.screenToWorldCoordinates(x, y);
+            
+            this.pathPoints.push({
+                x: worldCoords.x,
+                y: worldCoords.y,
+                z: worldCoords.z
+            });
+            this.displayPathPointInfo(this.pathPoints.length - 1, worldCoords);
+            this.displayPathVisualization();
+            
+            if (this.pathPoints.length === 3) {
+                this.completePathDefinition();
+            } else {
+                this.updatePathInfoUI('Click to define point P2 (second control point)');
+            }
         } else {
-            this.updatePathInfoUI('Click to define point P2 (second control point)');
+            // Handle object selection when not defining a path
+            if (this.app.viewManager.currentViewMode !== 'topView') {
+                console.log('Object picking is only available in Top View mode.');
+                return;
+            }
+            
+            const ndcX = (x / this.app.canvas.width) * 2 - 1;
+            const ndcY = -((y / this.app.canvas.height) * 2 - 1);
+            
+            console.log(`Click at NDC coordinates: (${ndcX.toFixed(2)}, ${ndcY.toFixed(2)})`);
+            
+            const modelIndex = this.pickObject(ndcX, ndcY);
+            
+            console.log(`Picked model index: ${modelIndex}`);
+            
+            if (modelIndex !== -1 && modelIndex < this.app.models.length) {
+                this.selectObject(modelIndex);
+            } else {
+                if (this.app.selectedObjectIndex !== -1) {
+                    this.resetSelection();
+                }
+            }
         }
+    }
+
+    // Moved from app.js - pickObject method
+    pickObject(ndcX, ndcY) {
+        const rayOrigin = [ndcX * 5, 5, ndcY * 5];
+        const rayDirection = [0, -1, 0];
+        
+        let closestModelIndex = -1;
+        let closestDistance = Infinity;
+        
+        for (let i = 0; i < this.app.models.length; i++) {
+            if (i >= this.app.modelNames.length) continue;
+            
+            const model = this.app.models[i];
+            
+            let centerX = 0, centerY = 0, centerZ = 0;
+            let vertexCount = 0;
+            let maxDistanceFromCenter = 0;
+            
+            for (let j = 0; j < model.vertices.length; j += 3) {
+                centerX += model.vertices[j];
+                centerY += model.vertices[j+1];
+                centerZ += model.vertices[j+2];
+                vertexCount++;
+            }
+            
+            if (vertexCount > 0) {
+                centerX /= vertexCount;
+                centerY /= vertexCount;
+                centerZ /= vertexCount;
+            }
+            
+            for (let j = 0; j < model.vertices.length; j += 3) {
+                const dx = model.vertices[j] - centerX;
+                const dy = model.vertices[j+1] - centerY;
+                const dz = model.vertices[j+2] - centerZ;
+                const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                if (distance > maxDistanceFromCenter) {
+                    maxDistanceFromCenter = distance;
+                }
+            }
+            
+            const sphereOrigin = [centerX, centerY, centerZ];
+            const sphereRadius = maxDistanceFromCenter;
+            
+            const dx = rayOrigin[0] - sphereOrigin[0];
+            const dz = rayOrigin[2] - sphereOrigin[2];
+            const distanceSquared = dx * dx + dz * dz;
+            
+            if (distanceSquared <= sphereRadius * sphereRadius) {
+                const distance = rayOrigin[1] - sphereOrigin[1];
+                
+                if (distance > 0 && distance < closestDistance) {
+                    closestDistance = distance;
+                    closestModelIndex = i;
+                }
+            }
+        }
+        
+        return closestModelIndex;
+    }
+    resetSelection() {
+        if (this.app.selectedObjectIndex !== -1 && this.app.selectedObjectIndex < this.app.models.length) {
+            console.log(`Resetting selection: ${this.app.selectedObjectIndex}`);
+            
+            const originalColorArray = this.app.originalColors[this.app.selectedObjectIndex];
+            const model = this.app.models[this.app.selectedObjectIndex];
+            
+            model.colors = new Float32Array(originalColorArray);
+            
+            const gl = this.app.renderer.gl;
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.app.buffers[this.app.selectedObjectIndex].colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, model.colors, gl.STATIC_DRAW);
+            
+            const infoDiv = document.getElementById('selection-info');
+            if (infoDiv) {
+                infoDiv.remove();
+            }
+            
+            this.app.selectedObjectIndex = -1;
+        }
+    }
+    selectObject(index) {
+        console.log(`Selecting object at index ${index}: ${this.app.modelNames[index]}`);
+        
+        if (this.app.selectedObjectIndex !== -1 && this.app.selectedObjectIndex < this.app.models.length) {
+            console.log(`Resetting previous selection: ${this.app.selectedObjectIndex}`);
+            
+            const originalColorArray = this.app.originalColors[this.app.selectedObjectIndex];
+            const model = this.app.models[this.app.selectedObjectIndex];
+            
+            model.colors = new Float32Array(originalColorArray);
+            
+            const gl = this.app.renderer.gl;
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.app.buffers[this.app.selectedObjectIndex].colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, model.colors, gl.STATIC_DRAW);
+        }
+        
+        this.app.selectedObjectIndex = index;
+        
+        const selectedModel = this.app.models[index];
+        const newColors = new Float32Array(selectedModel.colors.length);
+        
+        for (let i = 0; i < selectedModel.colors.length; i += 3) {
+            newColors[i] = this.highlightColor[0];
+            newColors[i + 1] = this.highlightColor[1];
+            newColors[i + 2] = this.highlightColor[2];
+        }
+        
+        selectedModel.colors = newColors;
+        
+        const gl = this.app.renderer.gl;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.app.buffers[index].colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, selectedModel.colors, gl.STATIC_DRAW);
+        
+        console.log(`Selected model: ${this.app.modelNames[index]}`);
+        
+        this.displaySelectionInfo(index);
+    }
+    displaySelectionInfo(index) {
+        const existingInfoDiv = document.getElementById('selection-info');
+        if (existingInfoDiv) {
+            existingInfoDiv.remove();
+        }
+
+        const infoDiv = document.createElement('div');
+        infoDiv.id = 'selection-info';
+        infoDiv.style.position = 'absolute';
+        infoDiv.style.top = '50px';
+        infoDiv.style.left = '10px';
+        infoDiv.style.color = 'white';
+        infoDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        infoDiv.style.padding = '10px';
+        infoDiv.innerHTML = `
+            <strong>Selected Object:</strong> 
+            ${this.app.modelNames[index]}
+        `;
+        document.body.appendChild(infoDiv);
     }
 
     calculateViewSize() {
