@@ -12,6 +12,7 @@ class ObjectMovementController {
         this.zHeight = 0.5; 
         this.viewSize = 4; 
         this.highlightColor = [1.0, 0.5, 0.0];
+        this.clickedPoint = null;
         
         this.handleMouseClick = this.handleMouseClick.bind(this);
         this.startPathDefinition = this.startPathDefinition.bind(this);
@@ -23,7 +24,6 @@ class ObjectMovementController {
         this.screenToWorldCoordinates = this.screenToWorldCoordinates.bind(this);
         this.worldToScreenCoordinates = this.worldToScreenCoordinates.bind(this);
         
-        // Bind new selection methods
         this.pickObject = this.pickObject.bind(this);
         this.selectObject = this.selectObject.bind(this);
         this.resetSelection = this.resetSelection.bind(this);
@@ -134,12 +134,24 @@ class ObjectMovementController {
     
         this.isDefiningPath = true;
         
+        const selectedModel = this.app.models[this.app.selectedObjectIndex];
+        let startPoint;
+        
+        if (this.clickedPoint) {
+            startPoint = this.clickedPoint;
+        } else if (selectedModel.currentPosition) {
+            startPoint = selectedModel.currentPosition;
+        } else {
+            startPoint = { x: 0, y: 0, z: this.zHeight };
+        }
+        
         this.pathPoints.push({
-            x: 0,
-            y: 0,
-            z: 0
+            x: startPoint.x,
+            y: startPoint.y,
+            z: startPoint.z
         });
         
+        this.displayPathPointInfo(0, startPoint);
         this.updatePathInfoUI('Click to define point P1 (first control point)');
         
         this.originalClickHandler = this.app.handleMouseClick;
@@ -147,7 +159,6 @@ class ObjectMovementController {
         this.app.canvas.addEventListener('click', this.handleMouseClick);
     }
 
-    // Updated handleMouseClick to include both selection and path definition
     handleMouseClick(event) {
         const rect = this.app.canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
@@ -170,90 +181,128 @@ class ObjectMovementController {
                 this.updatePathInfoUI('Click to define point P2 (second control point)');
             }
         } else {
-            // Handle object selection when not defining a path
             if (this.app.viewManager.currentViewMode !== 'topView') {
                 console.log('Object picking is only available in Top View mode.');
                 return;
             }
             
-            const ndcX = (x / this.app.canvas.width) * 2 - 1;
-            const ndcY = -((y / this.app.canvas.height) * 2 - 1);
+            const worldCoords = this.screenToWorldCoordinates(x, y);
+            this.clickedPoint = worldCoords;
             
-            console.log(`Click at NDC coordinates: (${ndcX.toFixed(2)}, ${ndcY.toFixed(2)})`);
+            let selectedIndex = -1;
+            let minDistance = Infinity;
             
-            const modelIndex = this.pickObject(ndcX, ndcY);
-            
-            console.log(`Picked model index: ${modelIndex}`);
-            
-            if (modelIndex !== -1 && modelIndex < this.app.models.length) {
-                this.selectObject(modelIndex);
-            } else {
-                if (this.app.selectedObjectIndex !== -1) {
-                    this.resetSelection();
+            for (let i = 0; i < this.app.models.length; i++) {
+                const model = this.app.models[i];
+                
+                if (model.currentPosition) {
+                    const dx = - worldCoords.x + model.currentPosition.x;
+                    const dz = -worldCoords.z + model.currentPosition.z;
+                    const distanceSquared = dx * dx + dz * dz;
+                    
+                    let radius = 0.5;
+                    console.log("selected");
+                    
+                    if (model.vertices && model.vertices.length > 0) {
+                        let maxDist = 0;
+                        for (let j = 0; j < model.vertices.length; j += 3) {
+                            const vx = model.vertices[j];
+                            const vz = model.vertices[j + 2];
+                            const vdx = vx - model.currentPosition.x;
+                            const vdz = vz - model.currentPosition.z;
+                            const vdist = Math.sqrt(vdx * vdx + vdz * vdz);
+                            if (vdist > maxDist) maxDist = vdist;
+                        }
+                        radius = maxDist > 0 ? maxDist : radius;
+                    }
+                    
+                    const selectionRadius = radius * 1.2;
+                    
+                    if (distanceSquared <= selectionRadius * selectionRadius && distanceSquared < minDistance) {
+                        minDistance = distanceSquared;
+                        selectedIndex = i;
+                    }
                 }
+            }
+            
+            if (selectedIndex === -1) {
+                selectedIndex = this.pickObject(
+                    (x / this.app.canvas.width) * 2 - 1,
+                    -((y / this.app.canvas.height) * 2 - 1)
+                );
+            }
+            
+            if (selectedIndex !== -1) {
+                this.selectObject(selectedIndex);
+            } else if (this.app.selectedObjectIndex !== -1) {
+                this.resetSelection();
+            }
+        }
+    }
+    
+pickObject(ndcX, ndcY) {
+    const viewMode = this.app.viewManager.viewModes[this.app.viewManager.currentViewMode];
+    const viewMatrix = viewMode.viewMatrix;
+    const projMatrix = this.app.projMatrix;
+
+    const viewProj = glMatrix.mat4.create();
+    glMatrix.mat4.multiply(viewProj, projMatrix, viewMatrix);
+    const invViewProj = glMatrix.mat4.create();
+    glMatrix.mat4.invert(invViewProj, viewProj);
+
+    const rayOrigin = glMatrix.vec4.fromValues(ndcX, -ndcY, -1.0, 1.0);
+    const rayEnd = glMatrix.vec4.fromValues(ndcX, -ndcY, 1.0, 1.0);
+    
+    glMatrix.vec4.transformMat4(rayOrigin, rayOrigin, invViewProj);
+    glMatrix.vec4.transformMat4(rayEnd, rayEnd, invViewProj);
+    
+    glMatrix.vec4.scale(rayOrigin, rayOrigin, 1.0/rayOrigin[3]);
+    glMatrix.vec4.scale(rayEnd, rayEnd, 1.0/rayEnd[3]);
+    
+    const rayDirection = glMatrix.vec3.create();
+    glMatrix.vec3.sub(rayDirection, rayEnd, rayOrigin);
+    glMatrix.vec3.normalize(rayDirection, rayDirection);
+
+    let closestModelIndex = -1;
+    let closestDistance = Infinity;
+
+    for (let i = 0; i < this.app.models.length; i++) {
+        const model = this.app.models[i];
+        const center = model.currentPosition || { x: 0, y: 0, z: 0 };
+
+        let maxDistance = 0;
+        if (model.originalVertices) {
+            for (let j = 0; j < model.originalVertices.length; j += 3) {
+                const dx = model.originalVertices[j] - (model.originalCenter?.x || 0);
+                const dy = model.originalVertices[j+1] - (model.originalCenter?.y || 0);
+                const dz = model.originalVertices[j+2] - (model.originalCenter?.z || 0);
+                maxDistance = Math.max(maxDistance, Math.sqrt(dx*dx + dy*dy + dz*dz));
+            }
+        }
+        const radius = (maxDistance || 0.5) * 1.2;
+
+        const oc = glMatrix.vec3.fromValues(
+            rayOrigin[0] - center.x,
+            rayOrigin[1] - center.y,
+            rayOrigin[2] - center.z
+        );
+        
+        const a = glMatrix.vec3.dot(rayDirection, rayDirection);
+        const b = 2.0 * glMatrix.vec3.dot(oc, rayDirection);
+        const c = glMatrix.vec3.dot(oc, oc) - radius * radius;
+        const discriminant = b*b - 4*a*c;
+
+        if (discriminant >= 0) {
+            const t = (-b - Math.sqrt(discriminant)) / (2.0*a);
+            if (t >= 0 && t < closestDistance) {
+                closestDistance = t;
+                closestModelIndex = i;
             }
         }
     }
 
-    // Moved from app.js - pickObject method
-    pickObject(ndcX, ndcY) {
-        const rayOrigin = [ndcX * 5, 5, ndcY * 5];
-        const rayDirection = [0, -1, 0];
-        
-        let closestModelIndex = -1;
-        let closestDistance = Infinity;
-        
-        for (let i = 0; i < this.app.models.length; i++) {
-            if (i >= this.app.modelNames.length) continue;
-            
-            const model = this.app.models[i];
-            
-            let centerX = 0, centerY = 0, centerZ = 0;
-            let vertexCount = 0;
-            let maxDistanceFromCenter = 0;
-            
-            for (let j = 0; j < model.vertices.length; j += 3) {
-                centerX += model.vertices[j];
-                centerY += model.vertices[j+1];
-                centerZ += model.vertices[j+2];
-                vertexCount++;
-            }
-            
-            if (vertexCount > 0) {
-                centerX /= vertexCount;
-                centerY /= vertexCount;
-                centerZ /= vertexCount;
-            }
-            
-            for (let j = 0; j < model.vertices.length; j += 3) {
-                const dx = model.vertices[j] - centerX;
-                const dy = model.vertices[j+1] - centerY;
-                const dz = model.vertices[j+2] - centerZ;
-                const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                if (distance > maxDistanceFromCenter) {
-                    maxDistanceFromCenter = distance;
-                }
-            }
-            
-            const sphereOrigin = [centerX, centerY, centerZ];
-            const sphereRadius = maxDistanceFromCenter;
-            
-            const dx = rayOrigin[0] - sphereOrigin[0];
-            const dz = rayOrigin[2] - sphereOrigin[2];
-            const distanceSquared = dx * dx + dz * dz;
-            
-            if (distanceSquared <= sphereRadius * sphereRadius) {
-                const distance = rayOrigin[1] - sphereOrigin[1];
-                
-                if (distance > 0 && distance < closestDistance) {
-                    closestDistance = distance;
-                    closestModelIndex = i;
-                }
-            }
-        }
-        
-        return closestModelIndex;
-    }
+    return closestModelIndex;
+}
     resetSelection() {
         if (this.app.selectedObjectIndex !== -1 && this.app.selectedObjectIndex < this.app.models.length) {
             console.log(`Resetting selection: ${this.app.selectedObjectIndex}`);
@@ -294,6 +343,18 @@ class ObjectMovementController {
         this.app.selectedObjectIndex = index;
         
         const selectedModel = this.app.models[index];
+        if (!selectedModel.currentPosition) {
+            selectedModel.currentPosition = { x: 0, y: 0, z: 0 };
+        }
+        
+        if (this.clickedPoint) {
+            selectedModel.currentPosition = {
+                x: this.clickedPoint.x,
+                y: this.clickedPoint.y,
+                z: this.clickedPoint.z
+            };
+        }
+        
         const newColors = new Float32Array(selectedModel.colors.length);
         
         for (let i = 0; i < selectedModel.colors.length; i += 3) {
@@ -594,15 +655,45 @@ class ObjectMovementController {
             selectedModel.originalVertices = new Float32Array(selectedModel.vertices);
         }
         
-        const newVertices = new Float32Array(selectedModel.originalVertices);
+        selectedModel.currentPosition = {
+            x: position.x,
+            y: position.y,
+            z: position.z
+        };
         
-        for (let i = 0; i < newVertices.length; i += 3) {
-            newVertices[i] = selectedModel.originalVertices[i] + position.x;
-            newVertices[i + 1] = selectedModel.originalVertices[i + 1] + position.y;
-            newVertices[i + 2] = selectedModel.originalVertices[i + 2] + position.z;
+        console.log(`Updating object position to: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
+        
+        const newVertices = new Float32Array(selectedModel.originalVertices.length);
+        
+        if (!selectedModel.originalCenter) {
+            let sumX = 0, sumY = 0, sumZ = 0;
+            let count = 0;
+            
+            for (let i = 0; i < selectedModel.originalVertices.length; i += 3) {
+                sumX += selectedModel.originalVertices[i];
+                sumY += selectedModel.originalVertices[i + 1];
+                sumZ += selectedModel.originalVertices[i + 2];
+                count++;
+            }
+            
+            if (count > 0) {
+                selectedModel.originalCenter = {
+                    x: sumX / count,
+                    y: sumY / count,
+                    z: sumZ / count
+                };
+            } else {
+                selectedModel.originalCenter = { x: 0, y: 0, z: 0 };
+            }
         }
         
-        selectedModel.vertices = newVertices;
+        for (let i = 0; i < selectedModel.originalVertices.length; i += 3) {
+            newVertices[i] = selectedModel.originalVertices[i] - selectedModel.originalCenter.x + position.x;
+            newVertices[i + 1] = selectedModel.originalVertices[i + 1] - selectedModel.originalCenter.y + position.y;
+            newVertices[i + 2] = selectedModel.originalVertices[i + 2] - selectedModel.originalCenter.z + position.z;
+        }
+        
+        selectedModel.vertices = newVertices
         
         const gl = this.app.renderer.gl;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.app.buffers[this.app.selectedObjectIndex].vertexBuffer);
@@ -619,16 +710,6 @@ class ObjectMovementController {
         
         if (this.pathContext) {
             this.pathContext.clearRect(0, 0, this.pathCanvas.width, this.pathCanvas.height);
-        }
-        
-        if (this.app.selectedObjectIndex !== -1 && this.app.models[this.app.selectedObjectIndex].originalVertices) {
-            const selectedModel = this.app.models[this.app.selectedObjectIndex];
-            
-            selectedModel.vertices = new Float32Array(selectedModel.originalVertices);
-            
-            const gl = this.app.renderer.gl;
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.app.buffers[this.app.selectedObjectIndex].vertexBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, selectedModel.vertices, gl.STATIC_DRAW);
         }
         
         this.updatePathInfoUI('Path reset. Select an object and press "Define Movement Path" to start.');

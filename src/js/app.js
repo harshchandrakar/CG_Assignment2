@@ -371,7 +371,7 @@ class RotatingModelApp {
         const y = event.clientY - rect.top;
         
         const ndcX = (x / this.canvas.width) * 2 - 1;
-        const ndcY = -((y / this.canvas.height) * 2 - 1);
+        const ndcY = (y / this.canvas.height) * 2 - 1;
         
         console.log(`Click at NDC coordinates: (${ndcX.toFixed(2)}, ${ndcY.toFixed(2)})`);
         this.movementController.handleObjectSelection(ndcX, ndcY);
