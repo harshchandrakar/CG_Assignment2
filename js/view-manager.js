@@ -180,11 +180,17 @@ class ViewManager {
         const dy = event.clientY - this.lastY;
         this.lastX = event.clientX;
         this.lastY = event.clientY;
-    
-        this.cameraTheta += dx * 0.01;
-        this.cameraPhi -= dy * 0.01;
-        this.cameraPhi = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, this.cameraPhi));
-    
+
+        // Axis-aligned rotation
+        if(Math.abs(dx) > Math.abs(dy)) {
+            // Y-axis rotation
+            this.cameraTheta += dx * 0.01;
+        } else {
+            // X-axis rotation
+            this.cameraPhi -= dy * 0.01;
+            this.cameraPhi = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, this.cameraPhi));
+        }
+
         this.update3DViewMatrix();
     }
     

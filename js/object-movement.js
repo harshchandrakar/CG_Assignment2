@@ -643,7 +643,8 @@ pickObject(ndcX, ndcY) {
         } else {
             this.isAnimating = false;
             // Deselect object and reset path
-            this.app.selectedObjectIndex = -1;
+            // this.app.selectedObjectIndex = -1;
+            this.resetSelection()
             this.resetPath();
             this.updatePathInfoUI('Animation complete! Object deselected.');
             
@@ -669,10 +670,45 @@ pickObject(ndcX, ndcY) {
         this.pathContext.fillText('Position', screenCoords.x + 12, screenCoords.y + 10);
     }
 
+    calculateQuadraticCurve() {
+        const p0 = this.pathPoints[0];
+        const p1 = this.pathPoints[1];
+        const p2 = this.pathPoints[2];
+        
+        // Correct coefficients for quadratic curve p(t) = a*t² + b*t + c
+        // Solved for constraints: p(0)=p0, p(0.5)=p1, p(1)=p2
+        const a = {
+            x: 2 * (p0.x - 2 * p1.x + p2.x),
+            y: 2 * (p0.y - 2 * p1.y + p2.y),
+            z: 2 * (p0.z - 2 * p1.z + p2.z)
+        };
+        
+        const b = {
+            x: -3 * p0.x + 4 * p1.x - p2.x,
+            y: -3 * p0.y + 4 * p1.y - p2.y,
+            z: -3 * p0.z + 4 * p1.z - p2.z
+        };
+        
+        const c = {x: p0.x, y: p0.y, z: p0.z};
+    
+        // Generate points
+        this.curvePoints = [];
+        const numPoints = 100;
+        
+        for(let t = 0; t <= 1; t += 1/numPoints) {
+            this.curvePoints.push({
+                x: a.x * t*t + b.x * t + c.x,
+                y: a.y * t*t + b.y * t + c.y,
+                z: a.z * t*t + b.z * t + c.z
+            });
+        }
+    }
+
     updateModelPosition(position) {
         if (this.app.selectedObjectIndex === -1) return;
         
         const selectedModel = this.app.models[this.app.selectedObjectIndex];
+        const rotationMatrix = this.app.trackball.getRotationMatrix();
         
         if (!selectedModel.originalVertices) {
             selectedModel.originalVertices = new Float32Array(selectedModel.vertices);
@@ -717,14 +753,17 @@ pickObject(ndcX, ndcY) {
         for (let i = 0; i < selectedModel.originalVertices.length; i += 3) {
             // Center and scale the vertex
             let x = (selectedModel.originalVertices[i] - selectedModel.originalCenter.x) * scale;
-            let y = (selectedModel.originalVertices[i + 1] - selectedModel.originalCenter.y) * scale;
-            let z = (selectedModel.originalVertices[i + 2] - selectedModel.originalCenter.z) * scale;
+            let y = (selectedModel.originalVertices[i+1] - selectedModel.originalCenter.y) * scale;
+            let z = (selectedModel.originalVertices[i+2] - selectedModel.originalCenter.z) * scale;
     
-            // Apply rotations
-            const rotated = glMatrix.vec3.fromValues(x, y, z);
-            glMatrix.vec3.rotateX(rotated, rotated, [0, 0, 0], rotation.x);
-            glMatrix.vec3.rotateY(rotated, rotated, [0, 0, 0], rotation.y);
-            glMatrix.vec3.rotateZ(rotated, rotated, [0, 0, 0], rotation.z);
+            // // Apply rotations
+            // const rotated = glMatrix.vec3.fromValues(x, y, z);
+            // glMatrix.vec3.rotateX(rotated, rotated, [0, 0, 0], rotation.x);
+            // glMatrix.vec3.rotateY(rotated, rotated, [0, 0, 0], rotation.y);
+            // glMatrix.vec3.rotateZ(rotated, rotated, [0, 0, 0], rotation.z);
+            // Apply quaternion rotation
+            const rotated = glMatrix.vec3.create();
+            glMatrix.vec3.transformMat4(rotated, [x, y, z], rotationMatrix);
     
             // Translate to target position
             newVertices[i] = rotated[0] + position.x;
@@ -789,15 +828,15 @@ pickObject(ndcX, ndcY) {
         <div style="margin-bottom: 20px; background-color: rgba(255,160,50,0.2); padding: 12px; border-radius: 6px; border-left: 4px solid #FA5;">
             <h3 style="margin-top: 0; color: #FC8;">Object Manipulation</h3>
             <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
-                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">W</kbd>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">↑</kbd>
                 <div>Rotate X-axis</div>
-                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">A</kbd>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">←</kbd>
                 <div>Rotate Y-axis</div>
-                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">D</kbd>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">→</kbd>
                 <div>Rotate Z-axis</div>
-                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">+</kbd>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">S</kbd>
                 <div>Scale Up (+0.1)</div>
-                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">-</kbd>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">X</kbd>
                 <div>Scale Down (-0.1)</div>
                 <div style="grid-column: span 2; margin-top: 5px;">
                     <strong>Click:</strong> Select Object
@@ -863,7 +902,7 @@ pickObject(ndcX, ndcY) {
             this.isDefiningPath = false;
         }
         // this.app.selectedObjectIndex = -1;
-        const infoDiv = document.getElementById('selection-info');
-        if (infoDiv) infoDiv.remove();
+        // const infoDiv = document.getElementById('selection-info');
+        // if (infoDiv) infoDiv.remove();
     }
 }
