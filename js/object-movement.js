@@ -807,8 +807,8 @@ pickObject(ndcX, ndcY) {
                 <span id="speedValue" style="font-weight: bold; min-width: 30px;">${(this.animationDuration/1000).toFixed(1)}s</span>
             </div>
             <div style="margin-top: 8px; font-size: 0.9em; display: flex; justify-content: space-between;">
-                <span><kbd style="background: #555; padding: 2px 5px; border-radius: 3px;">[</kbd> Slow Down 20%</span>
-                <span><kbd style="background: #555; padding: 2px 5px; border-radius: 3px;">]</kbd> Speed Up 20%</span>
+                <span><kbd style="background: #555; padding: 2px 5px; border-radius: 3px;">[</kbd> Speed Up 20%</span>
+                <span><kbd style="background: #555; padding: 2px 5px; border-radius: 3px;">]</kbd> Slow Down 20%</span>
             </div>
         </div>
         

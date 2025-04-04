@@ -356,7 +356,7 @@ class RotatingModelApp {
         this.viewManager.handleKeyPress(event);
     
         if (event.key === '[' || event.key === ']') {
-            const speedChange = event.key === '[' ? 20 : -20;
+            const speedChange = event.key === '[' ? -20 : 20;
             this.movementController.changeAnimationSpeed(speedChange);
             return;
         }
