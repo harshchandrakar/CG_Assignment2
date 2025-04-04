@@ -53,6 +53,7 @@ class RotatingModelApp {
         this.worldMatrix = new Float32Array(16);
         this.projMatrix = new Float32Array(16);
         this.movementController = new ObjectMovementController(this);
+        this.trackball = new VirtualTrackball(this.canvas);
         
         this.selectedObjectIndex = -1;
         this.originalColors = [];
@@ -353,38 +354,58 @@ class RotatingModelApp {
 
     handleKeyPress(event) {
         this.viewManager.handleKeyPress(event);
-
+    
         if (event.key === '[' || event.key === ']') {
-            const speedChange = event.key === '[' ? -20 : 20; // ±20% change
+            const speedChange = event.key === '[' ? -20 : 20;
             this.movementController.changeAnimationSpeed(speedChange);
             return;
         }
         
-        if (this.selectedObjectIndex !== -1 && !this.movementController.isAnimating) {
-            const key = event.key.toLowerCase();
-            const model = this.models[this.selectedObjectIndex];
-            const rotationStep = Math.PI/18;
-            const scaleStep = 0.1;
-    
-            let rotationAxis = null;
+        if (this.selectedObjectIndex !== -1 && 
+            !this.movementController.isAnimating &&
+            this.viewManager.currentViewMode === 'topView') {
             
-            // Map keys to rotation axes
-            if (key === 'w') rotationAxis = 'x';
-            if (key === 'a') rotationAxis = 'y';
-            if (key === 'd') rotationAxis = 'z';
+            const key = event.key.toLowerCase();
+            const rotationStep = Math.PI/18;
+            let rotationAxis = null;
     
-            // Handle rotation
+            // Map arrow keys to rotation axes
+            if (key === 'arrowup') rotationAxis = 'x';
+            if (key === 'arrowleft') rotationAxis = 'y';
+            if (key === 'arrowright') rotationAxis = 'z';
+    
             if (rotationAxis) {
-                model.rotation = model.rotation || { x: 0, y: 0, z: 0 };
-                model.rotation[rotationAxis] += rotationStep;
+                // Create rotation quaternion
+                const axisVec = {
+                    x: rotationAxis === 'x' ? 1 : 0,
+                    y: rotationAxis === 'y' ? 1 : 0,
+                    z: rotationAxis === 'z' ? 1 : 0
+                };
+                
+                const rotationQuat = glMatrix.quat.create();
+                glMatrix.quat.setAxisAngle(rotationQuat, 
+                    [axisVec.x, axisVec.y, axisVec.z], 
+                    rotationStep
+                );
+                
+                // Apply to trackball rotation
+                glMatrix.quat.multiply(this.trackball.rotation, 
+                    rotationQuat, 
+                    this.trackball.rotation
+                );
+                
+                // Force position update
+                const model = this.models[this.selectedObjectIndex];
                 if (model.currentPosition) {
                     this.movementController.updateModelPosition(model.currentPosition);
                 }
             }
             // Handle scaling
-            else if (key === '+' || key === '-') {
+            else if (key === 's' || key === 'x') {
+                const scaleStep = 0.1;
+                const model = this.models[this.selectedObjectIndex];
                 model.scale = model.scale || 1.0;
-                model.scale += (key === '+' ? scaleStep : -scaleStep);
+                model.scale += (key === 's' ? scaleStep : -scaleStep);
                 model.scale = Math.max(0.1, model.scale);
                 if (model.currentPosition) {
                     this.movementController.updateModelPosition(model.currentPosition);
@@ -493,6 +514,59 @@ class RotatingModelApp {
         };
         
         requestAnimationFrame(loop);
+    }
+}
+
+class VirtualTrackball {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.rotation = glMatrix.quat.create();
+        this.lastRotation = glMatrix.quat.create();
+        this.isDragging = false;
+        this.lastPos = [0, 0];
+
+        // Event listeners
+        canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+        canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
+        canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    }
+
+    screenToSphere(x, y) {
+        const rect = this.canvas.getBoundingClientRect();
+        const px = ((x - rect.left) / rect.width) * 2 - 1;
+        const py = ((rect.top + rect.height - y) / rect.height) * 2 - 1;
+        const length = px*px + py*py;
+        
+        if(length > 1) {
+            return [px / Math.sqrt(length), py / Math.sqrt(length), 0];
+        }
+        return [px, py, Math.sqrt(1 - length)];
+    }
+
+    handleMouseDown(e) {
+        this.isDragging = true;
+        this.lastPos = this.screenToSphere(e.clientX, e.clientY);
+        glMatrix.quat.copy(this.lastRotation, this.rotation);
+    }
+
+    handleMouseMove(e) {
+        if(!this.isDragging) return;
+        
+        const currPos = this.screenToSphere(e.clientX, e.clientY);
+        const axis = glMatrix.vec3.cross([], this.lastPos, currPos);
+        const angle = glMatrix.vec3.distance(this.lastPos, currPos) * 2;
+        
+        glMatrix.quat.setAxisAngle(this.rotation, axis, angle);
+        glMatrix.quat.multiply(this.rotation, this.rotation, this.lastRotation);
+    }
+
+    handleMouseUp() {
+        this.isDragging = false;
+    }
+
+    getRotationMatrix() {
+        const matrix = glMatrix.mat4.create();
+        return glMatrix.mat4.fromQuat(matrix, this.rotation);
     }
 }
 
