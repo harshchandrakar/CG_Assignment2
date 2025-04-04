@@ -12,18 +12,20 @@
     </style>
 </head>
 <body>
-    <canvas id="game-surface" width="950" height="700">
+    <canvas id="game-surface" >
         Your browser does not support HTML5
     </canvas>
 
     <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/3.4.2/gl-matrix-min.js"></script>
-    <script src="https://unpkg.com/webgl-obj-loader@latest/dist/webgl-obj-loader.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webgl-obj-loader@2.0.8/dist/webgl-obj-loader.min.js"></script>
 
     <!-- Application Scripts -->
     <script src="js/shader-loader.js"></script>
     <script src="js/obj-loader.js"></script>
     <script src="js/renderer.js"></script>
+    <script src="js/view-manager.js"></script>
+    <script src="js/object-movement.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
