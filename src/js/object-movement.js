@@ -5,7 +5,9 @@ class ObjectMovementController {
         this.isDefiningPath = false; 
         this.curvePoints = []; 
         this.animationStartTime = null; 
-        this.animationDuration = 5000; 
+        this.animationDuration = 3000; 
+        this.minDuration = 1000;   
+        this.maxDuration = 10000; 
         this.isAnimating = false; 
         this.animationProgress = 0; 
         this.originalModelPosition = null; 
@@ -32,6 +34,7 @@ class ObjectMovementController {
 
     init() {
         this.addMovementControlUI();
+        this.addControlPanel();
         this.createPathCanvas();
         
         window.addEventListener('keydown', (event) => {
@@ -87,6 +90,18 @@ class ObjectMovementController {
             if (this.app.selectedObjectIndex !== -1) {
                 this.resetSelection();
             }
+        }
+    }
+    changeAnimationSpeed(percentChange) {
+        const newDuration = this.animationDuration * (1 + percentChange/100);
+        this.animationDuration = Math.min(this.maxDuration, Math.max(this.minDuration, newDuration));
+        
+        // Update slider and display
+        const slider = document.getElementById('speedSlider');
+        const display = document.getElementById('speedValue');
+        if (slider && display) {
+            slider.value = (this.animationDuration/1000).toFixed(1);
+            display.textContent = `${(this.animationDuration/1000).toFixed(1)}s`;
         }
     }
 
@@ -586,7 +601,10 @@ pickObject(ndcX, ndcY) {
         
         requestAnimationFrame(this.animateObject.bind(this));
         
-        this.updatePathInfoUI('Animating object along path... <button id="stop-animation-btn">Stop Animation</button>');
+        this.updatePathInfoUI(`
+            Animating... (Speed: ${(5000/this.animationDuration).toFixed(1)}x)
+            <button id="stop-animation-btn">Stop</button>
+        `);
         document.getElementById('stop-animation-btn').addEventListener('click', () => {
             this.isAnimating = false;
             this.updatePathInfoUI('Animation stopped. Click "Reset Path" to start over or "Define Movement Path" to create a new path.');
@@ -624,9 +642,14 @@ pickObject(ndcX, ndcY) {
             requestAnimationFrame(this.animateObject.bind(this));
         } else {
             this.isAnimating = false;
-            this.updatePathInfoUI('Animation complete! <button id="reset-path-btn-2">Reset Path</button> <button id="start-new-path-btn">New Path</button>');
-            document.getElementById('reset-path-btn-2').addEventListener('click', this.resetPath);
-            document.getElementById('start-new-path-btn').addEventListener('click', this.startPathDefinition);
+            // Deselect object and reset path
+            this.app.selectedObjectIndex = -1;
+            this.resetPath();
+            this.updatePathInfoUI('Animation complete! Object deselected.');
+            
+            // Remove existing selection info
+            const infoDiv = document.getElementById('selection-info');
+            if (infoDiv) infoDiv.remove();
         }
     }
 
@@ -687,17 +710,137 @@ pickObject(ndcX, ndcY) {
             }
         }
         
+        // Get current scale and rotation values
+        const scale = selectedModel.scale || 1.0;
+        const rotation = selectedModel.rotation || { x: 0, y: 0, z: 0 };
+        
         for (let i = 0; i < selectedModel.originalVertices.length; i += 3) {
-            newVertices[i] = selectedModel.originalVertices[i] - selectedModel.originalCenter.x + position.x;
-            newVertices[i + 1] = selectedModel.originalVertices[i + 1] - selectedModel.originalCenter.y + position.y;
-            newVertices[i + 2] = selectedModel.originalVertices[i + 2] - selectedModel.originalCenter.z + position.z;
+            // Center and scale the vertex
+            let x = (selectedModel.originalVertices[i] - selectedModel.originalCenter.x) * scale;
+            let y = (selectedModel.originalVertices[i + 1] - selectedModel.originalCenter.y) * scale;
+            let z = (selectedModel.originalVertices[i + 2] - selectedModel.originalCenter.z) * scale;
+    
+            // Apply rotations
+            const rotated = glMatrix.vec3.fromValues(x, y, z);
+            glMatrix.vec3.rotateX(rotated, rotated, [0, 0, 0], rotation.x);
+            glMatrix.vec3.rotateY(rotated, rotated, [0, 0, 0], rotation.y);
+            glMatrix.vec3.rotateZ(rotated, rotated, [0, 0, 0], rotation.z);
+    
+            // Translate to target position
+            newVertices[i] = rotated[0] + position.x;
+            newVertices[i + 1] = rotated[1] + position.y;
+            newVertices[i + 2] = rotated[2] + position.z;
         }
         
-        selectedModel.vertices = newVertices
+        selectedModel.vertices = newVertices;
         
         const gl = this.app.renderer.gl;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.app.buffers[this.app.selectedObjectIndex].vertexBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, selectedModel.vertices, gl.STATIC_DRAW);
+    }
+
+    addControlPanel() {
+        const controlPanel = document.createElement('div');
+        controlPanel.id = 'control-panel';
+        Object.assign(controlPanel.style, {
+            position: 'absolute',
+            top: '50px',
+            right: '10px',
+            backgroundColor: 'rgba(20, 20, 30, 0.85)',
+            color: 'white',
+            padding: '15px',
+            borderRadius: '8px',
+            zIndex: '1000',
+            fontFamily: 'Arial, sans-serif',
+            width: '320px',
+            maxHeight: '70vh',
+            overflowY: 'auto',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+        });
+    
+        controlPanel.innerHTML = `
+        <h2 style="margin-top: 0; text-align: center; color: #8CF; border-bottom: 1px solid #8CF; padding-bottom: 10px;">Controls Panel</h2>
+        
+        <div style="margin-bottom: 20px; background-color: rgba(60,120,200,0.2); padding: 12px; border-radius: 6px; border-left: 4px solid #5AF;">
+            <h3 style="margin-top: 0; color: #8CF;">Animation Speed</h3>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+                <input type="range" id="speedSlider" min="1" max="10" step="0.5" value="${this.animationDuration/1000}" style="flex-grow: 1; accent-color: #5AF;">
+                <span id="speedValue" style="font-weight: bold; min-width: 30px;">${(this.animationDuration/1000).toFixed(1)}s</span>
+            </div>
+            <div style="margin-top: 8px; font-size: 0.9em; display: flex; justify-content: space-between;">
+                <span><kbd style="background: #555; padding: 2px 5px; border-radius: 3px;">[</kbd> Slow Down 20%</span>
+                <span><kbd style="background: #555; padding: 2px 5px; border-radius: 3px;">]</kbd> Speed Up 20%</span>
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 20px; background-color: rgba(80,200,120,0.2); padding: 12px; border-radius: 6px; border-left: 4px solid #6D3;">
+            <h3 style="margin-top: 0; color: #8E6;">View Controls</h3>
+            <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">T</kbd>
+                <div>Toggle Top View</div>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">Y</kbd>
+                <div>Toggle 3D View</div>
+                <div style="grid-column: span 2; margin-top: 5px;">
+                    <strong>Mouse Drag:</strong> Rotate Camera (3D View)
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 20px; background-color: rgba(255,160,50,0.2); padding: 12px; border-radius: 6px; border-left: 4px solid #FA5;">
+            <h3 style="margin-top: 0; color: #FC8;">Object Manipulation</h3>
+            <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">W</kbd>
+                <div>Rotate X-axis</div>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">A</kbd>
+                <div>Rotate Y-axis</div>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">D</kbd>
+                <div>Rotate Z-axis</div>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">+</kbd>
+                <div>Scale Up (+0.1)</div>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">-</kbd>
+                <div>Scale Down (-0.1)</div>
+                <div style="grid-column: span 2; margin-top: 5px;">
+                    <strong>Click:</strong> Select Object
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 20px; background-color: rgba(200,100,200,0.2); padding: 12px; border-radius: 6px; border-left: 4px solid #D8D;">
+            <h3 style="margin-top: 0; color: #DAD;">Path Controls</h3>
+            <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">M</kbd>
+                <div>Start Path Drawing</div>
+                <kbd style="background: #555; padding: 2px 6px; border-radius: 3px; text-align: center;">R</kbd>
+                <div>Reset Path</div>
+                <div style="grid-column: span 2; margin-top: 5px;">
+                    <strong>Click:</strong> Place Control Points
+                </div>
+                <div style="grid-column: span 2;">
+                    <strong>Enter:</strong> Confirm Path
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; font-size: 0.9em; background-color: rgba(180,180,200,0.2); padding: 12px; border-radius: 6px;">
+            <h3 style="margin-top: 0; color: #AAF;">Notes</h3>
+            <ul style="margin: 0; padding-left: 20px; line-height: 1.4;">
+                <li>Rotation/Scaling works only in Top View</li>
+                <li>Minimum Scale: 0.1x</li>
+                <li>Speed range: 1-10 seconds</li>
+                <li>Selected object turns orange</li>
+            </ul>
+        </div>
+        `;
+    
+        document.body.appendChild(controlPanel);
+    
+        // Speed slider handler
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        speedSlider.addEventListener('input', (e) => {
+            this.animationDuration = e.target.value * 1000;
+            speedValue.textContent = `${e.target.value}s`;
+        });
     }
 
     resetPath() {
@@ -719,5 +862,8 @@ pickObject(ndcX, ndcY) {
             this.app.canvas.addEventListener('click', this.app.handleMouseClick);
             this.isDefiningPath = false;
         }
+        // this.app.selectedObjectIndex = -1;
+        const infoDiv = document.getElementById('selection-info');
+        if (infoDiv) infoDiv.remove();
     }
 }

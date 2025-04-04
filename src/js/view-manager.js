@@ -16,7 +16,20 @@ class ViewManager {
                 description: '3D Perspective View'
             }
         };
+
+        this.isDragging = false;
+        this.lastX = 0;
+        this.lastY = 0;
+        this.cameraRadius = Math.sqrt(3*3 + 3*3 + 5*5); // Original camera distance
+        this.cameraTheta = Math.atan2(5, 3); // Initial angles
+        this.cameraPhi = Math.asin(3/this.cameraRadius);
+        this.initCameraPosition(); 
         
+        // Event listeners
+        app.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+        app.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
+        app.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+            
         // Bind methods to preserve context
         this.handleKeyPress = this.handleKeyPress.bind(this);
         this.setupViewMatrix = this.setupViewMatrix.bind(this);
@@ -145,6 +158,39 @@ class ViewManager {
 
         return model;
     }
+    initCameraPosition() {
+        this.cameraRadius = 8; // Increased initial distance
+        this.cameraTheta = Math.PI/4; // 45 degrees
+        this.cameraPhi = Math.PI/6; // 30 degrees
+        this.update3DViewMatrix();
+    }
+
+    handleMouseDown(event) {
+        if (this.currentViewMode === 'threeD') {
+            this.isDragging = true;
+            this.lastX = event.clientX;
+            this.lastY = event.clientY;
+        }
+    }
+    
+    handleMouseMove(event) {
+        if (!this.isDragging || this.currentViewMode !== 'threeD') return;
+        
+        const dx = event.clientX - this.lastX;
+        const dy = event.clientY - this.lastY;
+        this.lastX = event.clientX;
+        this.lastY = event.clientY;
+    
+        this.cameraTheta += dx * 0.01;
+        this.cameraPhi -= dy * 0.01;
+        this.cameraPhi = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, this.cameraPhi));
+    
+        this.update3DViewMatrix();
+    }
+    
+    handleMouseUp() {
+        this.isDragging = false;
+    }
 
     handleKeyPress(event) {
         // Switch to Top View when 'T' is pressed
@@ -156,6 +202,7 @@ class ViewManager {
         // Switch to 3D View when 'Y' is pressed
         else if (event.key.toLowerCase() === 'y') {
             this.currentViewMode = 'threeD';
+            this.initCameraPosition();
             this.setupViewMatrix();
             this.displayViewModeInfo();
         }
@@ -178,36 +225,28 @@ class ViewManager {
         infoDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
         infoDiv.style.padding = '10px';
         infoDiv.innerHTML = `
-            <strong>View Mode:</strong> 
-            ${this.currentViewMode === 'threeD' 
-                ? '3D Perspective View (Press T for Top View)' 
-                : 'Top View (Press Y for 3D View, Click to Select Objects)'
-            }
-        `;
+        <strong>View Mode:</strong> 
+        ${this.currentViewMode === 'threeD' 
+            ? '3D Perspective View (Drag mouse to rotate, Press T for Top View)' 
+            : 'Top View (Press Y for 3D View, Click to Select Objects)'
+        }
+    `;
         document.body.appendChild(infoDiv);
     }
 
     setupViewMatrix() {
         const gl = this.app.renderer.gl;
         gl.useProgram(this.program);
-
-        // 3D View Matrix - Angled view with wider FOV
-        glMatrix.mat4.lookAt(
-            this.viewModes.threeD.viewMatrix, 
-            [3, 3, 5],    // Adjusted camera position for better viewing of models at origin
-            [0, 0, 0],    // Look at origin
-            [0, 1, 0]     // Up vector
-        );
-
-        // Top View Matrix (Looking directly down from top)
+    
+        // Keep top view setup
         glMatrix.mat4.lookAt(
             this.viewModes.topView.viewMatrix, 
-            [0, 5, 0],    // Looking from top
-            [0, 0, 0],    // Looking at origin
-            [0, 0, -1]    // Adjusted up vector
+            [0, 5, 0],
+            [0, 0, 0],
+            [0, 0, -1]
         );
-
-        // Update view matrix in the rendering pipeline
+    
+        // Update view matrix
         const viewLocation = this.app.uniformLocations.mView;
         if (viewLocation !== null) {
             gl.uniformMatrix4fv(
@@ -215,6 +254,22 @@ class ViewManager {
                 gl.FALSE, 
                 this.viewModes[this.currentViewMode].viewMatrix
             );
+        }
+    }
+    update3DViewMatrix() {
+        const x = this.cameraRadius * Math.cos(this.cameraTheta) * Math.cos(this.cameraPhi);
+        const y = this.cameraRadius * Math.sin(this.cameraPhi);
+        const z = this.cameraRadius * Math.sin(this.cameraTheta) * Math.cos(this.cameraPhi);
+        
+        glMatrix.mat4.lookAt(
+            this.viewModes.threeD.viewMatrix,
+            [x, y, z],
+            [0, 0, 0],
+            [0, 1, 0]
+        );
+        
+        if (this.currentViewMode === 'threeD') {
+            this.setupViewMatrix();
         }
     }
 }

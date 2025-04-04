@@ -353,6 +353,44 @@ class RotatingModelApp {
 
     handleKeyPress(event) {
         this.viewManager.handleKeyPress(event);
+
+        if (event.key === '[' || event.key === ']') {
+            const speedChange = event.key === '[' ? -20 : 20; // ±20% change
+            this.movementController.changeAnimationSpeed(speedChange);
+            return;
+        }
+        
+        if (this.selectedObjectIndex !== -1 && !this.movementController.isAnimating) {
+            const key = event.key.toLowerCase();
+            const model = this.models[this.selectedObjectIndex];
+            const rotationStep = Math.PI/18;
+            const scaleStep = 0.1;
+    
+            let rotationAxis = null;
+            
+            // Map keys to rotation axes
+            if (key === 'w') rotationAxis = 'x';
+            if (key === 'a') rotationAxis = 'y';
+            if (key === 'd') rotationAxis = 'z';
+    
+            // Handle rotation
+            if (rotationAxis) {
+                model.rotation = model.rotation || { x: 0, y: 0, z: 0 };
+                model.rotation[rotationAxis] += rotationStep;
+                if (model.currentPosition) {
+                    this.movementController.updateModelPosition(model.currentPosition);
+                }
+            }
+            // Handle scaling
+            else if (key === '+' || key === '-') {
+                model.scale = model.scale || 1.0;
+                model.scale += (key === '+' ? scaleStep : -scaleStep);
+                model.scale = Math.max(0.1, model.scale);
+                if (model.currentPosition) {
+                    this.movementController.updateModelPosition(model.currentPosition);
+                }
+            }
+        }
     }
 
     handleMouseClick(event) {
