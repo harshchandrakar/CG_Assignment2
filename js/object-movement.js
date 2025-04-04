@@ -671,36 +671,30 @@ pickObject(ndcX, ndcY) {
     }
 
     calculateQuadraticCurve() {
-        const p0 = this.pathPoints[0];
-        const p1 = this.pathPoints[1];
-        const p2 = this.pathPoints[2];
-        
-        // Correct coefficients for quadratic curve p(t) = a*t² + b*t + c
-        // Solved for constraints: p(0)=p0, p(0.5)=p1, p(1)=p2
-        const a = {
-            x: 2 * (p0.x - 2 * p1.x + p2.x),
-            y: 2 * (p0.y - 2 * p1.y + p2.y),
-            z: 2 * (p0.z - 2 * p1.z + p2.z)
-        };
-        
-        const b = {
-            x: -3 * p0.x + 4 * p1.x - p2.x,
-            y: -3 * p0.y + 4 * p1.y - p2.y,
-            z: -3 * p0.z + 4 * p1.z - p2.z
-        };
-        
-        const c = {x: p0.x, y: p0.y, z: p0.z};
-    
-        // Generate points
         this.curvePoints = [];
+        
+        // Quadratic Bezier needs exactly 3 control points
+        if (this.pathPoints.length !== 3) return;
+    
+        const p0 = this.pathPoints[0];
+        const p1 = this.pathPoints[1]; // Control point
+        const p2 = this.pathPoints[2]; // End point
+    
         const numPoints = 100;
         
-        for(let t = 0; t <= 1; t += 1/numPoints) {
-            this.curvePoints.push({
-                x: a.x * t*t + b.x * t + c.x,
-                y: a.y * t*t + b.y * t + c.y,
-                z: a.z * t*t + b.z * t + c.z
-            });
+        for (let t = 0; t <= 1; t += 1/numPoints) {
+            const u = 1 - t;
+            const u2 = u * u;
+            const t2 = t * t;
+            
+            // Standard quadratic Bezier formula
+            const point = {
+                x: u2 * p0.x + 2 * u * t * p1.x + t2 * p2.x,
+                y: u2 * p0.y + 2 * u * t * p1.y + t2 * p2.y,
+                z: u2 * p0.z + 2 * u * t * p1.z + t2 * p2.z
+            };
+            
+            this.curvePoints.push(point);
         }
     }
 

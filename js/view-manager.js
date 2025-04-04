@@ -29,6 +29,7 @@ class ViewManager {
         app.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
         app.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
         app.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+        this.createLabelCanvas(); 
             
         // Bind methods to preserve context
         this.handleKeyPress = this.handleKeyPress.bind(this);
@@ -158,6 +159,74 @@ class ViewManager {
 
         return model;
     }
+    createLabelCanvas() {
+        const existingCanvas = document.getElementById('axis-label-canvas');
+        if (existingCanvas) existingCanvas.remove();
+
+        this.labelCanvas = document.createElement('canvas');
+        this.labelCanvas.id = 'axis-label-canvas';
+        const glCanvas = this.app.canvas;
+        const rect = glCanvas.getBoundingClientRect();
+
+        Object.assign(this.labelCanvas.style, {
+            position: 'absolute',
+            top: `${rect.top}px`,
+            left: `${rect.left}px`,
+            width: `${glCanvas.width}px`,
+            height: `${glCanvas.height}px`,
+            pointerEvents: 'none',
+            backgroundColor: 'transparent', // Add this line
+            zIndex: '99'
+        });
+
+        this.labelCanvas.width = glCanvas.width;
+        this.labelCanvas.height = glCanvas.height;
+        document.body.appendChild(this.labelCanvas);
+        this.labelContext = this.labelCanvas.getContext('2d');
+    }
+
+    worldToScreenCoordinates(worldX, worldY, worldZ) {
+        const viewMatrix = this.viewModes[this.currentViewMode].viewMatrix;
+        const projMatrix = this.app.projMatrix;
+
+        const worldPoint = glMatrix.vec4.fromValues(worldX, worldY, worldZ, 1.0);
+        const viewPoint = glMatrix.vec4.create();
+        glMatrix.vec4.transformMat4(viewPoint, worldPoint, viewMatrix);
+        const clipPoint = glMatrix.vec4.create();
+        glMatrix.vec4.transformMat4(clipPoint, viewPoint, projMatrix);
+
+        if (clipPoint[3] === 0) return null;
+
+        const ndcX = clipPoint[0] / clipPoint[3];
+        const ndcY = clipPoint[1] / clipPoint[3];
+
+        const screenX = ((ndcX + 1) / 2) * this.app.canvas.width;
+        const screenY = ((1 - ndcY) / 2) * this.app.canvas.height;
+
+        return { x: screenX, y: screenY };
+    }
+
+    drawAxisLabels() {
+        this.labelContext.clearRect(0, 0, this.labelCanvas.width, this.labelCanvas.height);
+
+        const tipPositions = [
+            [0.6, 0, 0], // X-axis tip
+            [0, 0.6, 0], // Y-axis tip
+            [0, 0, 0.6]  // Z-axis tip
+        ];
+        const colors = ['#ff0000', '#00ff00', '#0000ff'];
+        const labels = ['X', 'Y', 'Z'];
+
+        tipPositions.forEach((pos, idx) => {
+            const screenCoords = this.worldToScreenCoordinates(...pos);
+            if (screenCoords) {
+                this.labelContext.fillStyle = colors[idx];
+                this.labelContext.font = '14px Arial';
+                this.labelContext.fillText(labels[idx], screenCoords.x + 5, screenCoords.y + 5);
+            }
+        });
+    }
+
     initCameraPosition() {
         this.cameraRadius = 8; // Increased initial distance
         this.cameraTheta = Math.PI/4; // 45 degrees

@@ -509,7 +509,7 @@ class RotatingModelApp {
             });
             
             gl.enable(gl.DEPTH_TEST);
-            
+            this.viewManager.drawAxisLabels();
             requestAnimationFrame(loop);
         };
         
