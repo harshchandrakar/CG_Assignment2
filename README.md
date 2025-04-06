@@ -85,14 +85,40 @@ Watch a demonstration video of the application: [YouTube Demo](https://youtu.be/
 
 ## 📚 Project Structure
 
-- `index.html`: Main entry point
-- `js/`
-  - `ShaderLoader.js`: Handles shader loading and compilation
-  - `VirtualTrackball.js`: Implements camera rotation functionality
-  - `ViewManager.js`: Manages different view modes
-  - `OBJLoader.js`: Loads and parses 3D models
-  - `Renderer.js`: Handles WebGL rendering pipeline
-  - `main.js`: Core application logic
+```
+.
+├── README.md
+├── Report.pdf
+├── index.html
+├── js
+│   ├── app.js
+│   ├── obj-loader.js
+│   ├── object-movement.js
+│   ├── renderer.js
+│   ├── shader-loader.js
+│   └── view-manager.js
+├── media
+│   ├── CG_Assignment_2_demo.mp4
+│   ├── Screenshot 2025-04-06 at 11.49.57 AM.png
+│   ├── Screenshot 2025-04-06 at 11.53.14 AM.png
+│   ├── Screenshot 2025-04-06 at 11.55.26 AM.png
+│   ├── Screenshot 2025-04-06 at 11.56.45 AM.png
+│   ├── Screenshot 2025-04-06 at 11.58.32 AM.png
+│   └── Screenshot 2025-04-06 at 12.01.54 PM.png
+├── models
+│   ├── arrow1.obj
+│   ├── cube.obj
+│   ├── cup4.obj
+│   ├── random.obj
+│   ├── random1.obj
+│   └── random2.obj
+├── shaders
+│   ├── fragment-shader.glsl
+│   └── vertex-shader.glsl
+└── video
+```
+
+The `media` folder contains demonstration video and screenshots of the application in action, showcasing different features and view modes.
 
 ## 🔍 Further Development
 
